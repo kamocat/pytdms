@@ -1,0 +1,54 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "pytdms"
+version = "0.1.0"
+description = "Pure-Python streaming TDMS writer — CircuitPython 10.x compatible"
+requires-python = ">=3.8"
+license = { text = "MIT" }
+dependencies = []
+
+[project.optional-dependencies]
+async = ["aiofile>=3.7"]
+test = [
+    "pytest>=7",
+    "nptdms>=1.0",
+    "numpy",
+    "aiofile>=3.7",
+]
+dev = [
+    "pre-commit>=3",
+    "ruff>=0.4",
+]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-v"
+
+[tool.hatch.build.targets.wheel]
+packages = ["pytdms"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py38"
+
+[tool.ruff.lint]
+# E/W = pycodestyle, F = Pyflakes, I = isort, UP = pyupgrade,
+# B = flake8-bugbear, C4 = flake8-comprehensions, SIM = flake8-simplify
+select = ["E", "W", "F", "I", "UP", "B", "C4", "SIM"]
+ignore = [
+    "E501",   # line too long — handled by formatter
+    "SIM108", # ternary operator — readability preference
+    "UP007",  # X | Y union syntax — not available in Python 3.8
+    "UP006",  # type[X] — not available in Python 3.8
+    "B007",   # loop variable unused — common in CircuitPython range loops
+]
+
+[tool.ruff.lint.isort]
+known-first-party = ["pytdms"]
+
+[tool.ruff.format]
+quote-style = "double"
+indent-style = "space"
