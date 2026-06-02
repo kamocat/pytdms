@@ -11,22 +11,28 @@ beyond ``struct``, so it is fully compatible with CircuitPython 10.x.
 import struct
 
 from pytdms.constants import (
-    TAG, VERSION, LEAD_IN_SIZE,
-    DataType, _TYPE_INFO,
-    _NO_DATA_INDEX, _SAME_INDEX,
-    RAW_INDEX_PAYLOAD_FIXED, RAW_INDEX_PAYLOAD_STRING,
+    _NO_DATA_INDEX,
+    _SAME_INDEX,
+    _TYPE_INFO,
+    LEAD_IN_SIZE,
+    RAW_INDEX_PAYLOAD_FIXED,
+    RAW_INDEX_PAYLOAD_STRING,
+    TAG,
+    VERSION,
+    DataType,
 )
 
 # ---------------------------------------------------------------------------
 # Struct format strings  — pre-compiled at import time for performance
 # ---------------------------------------------------------------------------
-_FMT_U32  = struct.Struct("<I")
-_FMT_U64  = struct.Struct("<Q")
-_FMT_LEAD_IN = struct.Struct("<II QQ")   # toc(u32) version(u32) next_seg(u64) raw_off(u64)
+_FMT_U32 = struct.Struct("<I")
+_FMT_U64 = struct.Struct("<Q")
+_FMT_LEAD_IN = struct.Struct("<II QQ")  # toc(u32) version(u32) next_seg(u64) raw_off(u64)
 
 # ---------------------------------------------------------------------------
 # String encoding
 # ---------------------------------------------------------------------------
+
 
 def encode_string(s):
     """Encode a Python string to TDMS wire format: ``u32_len + utf8_bytes``.
@@ -43,6 +49,7 @@ def encode_string(s):
 # ---------------------------------------------------------------------------
 # Value encoding
 # ---------------------------------------------------------------------------
+
 
 def encode_value(data_type, value):
     """Encode a single scalar *value* of *data_type* to ``bytes``.
@@ -74,6 +81,7 @@ def encode_value(data_type, value):
 # ---------------------------------------------------------------------------
 # Lead-in
 # ---------------------------------------------------------------------------
+
 
 def pack_lead_in(toc, next_seg_offset, raw_data_offset):
     """Build the 28-byte TDMS segment lead-in.
@@ -111,6 +119,7 @@ def update_next_seg_offset(buf, offset, new_value):
 # Raw-data index
 # ---------------------------------------------------------------------------
 
+
 def pack_no_data_index():
     """Return the 4-byte sentinel meaning "no raw data for this object"."""
     return _NO_DATA_INDEX
@@ -140,7 +149,7 @@ def pack_raw_index(data_type, num_values, total_string_bytes=None):
             "<IIIQQ",
             RAW_INDEX_PAYLOAD_STRING,  # payload length (20)
             data_type,
-            1,                          # array dimension (always 1)
+            1,  # array dimension (always 1)
             num_values,
             total_string_bytes,
         )
@@ -156,6 +165,7 @@ def pack_raw_index(data_type, num_values, total_string_bytes=None):
 # ---------------------------------------------------------------------------
 # Properties
 # ---------------------------------------------------------------------------
+
 
 def pack_property(name, data_type, value):
     """Encode a single TDMS property.
@@ -173,6 +183,7 @@ def pack_property(name, data_type, value):
 # ---------------------------------------------------------------------------
 # Meta-data object block
 # ---------------------------------------------------------------------------
+
 
 def pack_object_meta(path, raw_index_bytes, properties):
     """Encode a single TDMS object's meta-data block.
@@ -200,7 +211,8 @@ def pack_object_meta(path, raw_index_bytes, properties):
     out += raw_index_bytes
     _FMT_U32.pack_into(
         bytearray(4),  # temporary; we rebuild below to avoid double allocation
-        0, len(prop_list)
+        0,
+        len(prop_list),
     )
     out += _FMT_U32.pack(len(prop_list))
     out += encoded_props
@@ -210,6 +222,7 @@ def pack_object_meta(path, raw_index_bytes, properties):
 # ---------------------------------------------------------------------------
 # Raw-data packing for Python value sequences
 # ---------------------------------------------------------------------------
+
 
 def pack_values(data_type, values):
     """Pack an iterable of Python scalars into a ``bytes`` object.
@@ -290,7 +303,7 @@ def validate_raw_bytes(data_type, raw_bytes, expected_values):
     n = total // byte_size
     if expected_values is not None and n != expected_values:
         raise ValueError(
-            "Expected %d values (%d bytes) but got %d bytes" % (
-                expected_values, expected_values * byte_size, total)
+            "Expected %d values (%d bytes) but got %d bytes"
+            % (expected_values, expected_values * byte_size, total)
         )
     return n

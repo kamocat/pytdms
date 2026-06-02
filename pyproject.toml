@@ -52,3 +52,4 @@ known-first-party = ["pytdms"]
 [tool.ruff.format]
 quote-style = "double"
 indent-style = "space"
+exclude = ["pytdms/constants.py"]  # hand-aligned assignments — formatter would strip them

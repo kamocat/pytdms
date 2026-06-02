@@ -8,13 +8,19 @@ Every test follows the same pattern:
 """
 
 import struct
-import pytest
+
 import numpy as np
 
-from pytdms.constants import DataType
 from pytdms.channel import Channel
+from pytdms.constants import DataType
 from pytdms.writer import TdmsWriter
-from tests.conftest import requires_nptdms, read_tdms, channel_data, channel_properties, file_properties
+from tests.conftest import (
+    channel_data,
+    channel_properties,
+    file_properties,
+    read_tdms,
+    requires_nptdms,
+)
 
 pytestmark = requires_nptdms
 
@@ -22,6 +28,7 @@ pytestmark = requires_nptdms
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
+
 
 def write_simple(tmp_path, data_type, values, group="G", name="C", ch_props=None):
     """Write a single-channel file and return its path."""
@@ -35,6 +42,7 @@ def write_simple(tmp_path, data_type, values, group="G", name="C", ch_props=None
 # ---------------------------------------------------------------------------
 # All numeric data types
 # ---------------------------------------------------------------------------
+
 
 class TestNumericTypes:
     def test_i8(self, tmp_path):
@@ -108,6 +116,7 @@ class TestNumericTypes:
 # String channels
 # ---------------------------------------------------------------------------
 
+
 class TestStringChannel:
     def test_single_value(self, tmp_path):
         path = write_simple(tmp_path, DataType.STRING, ["hello"])
@@ -136,6 +145,7 @@ class TestStringChannel:
 # Timestamp channels
 # ---------------------------------------------------------------------------
 
+
 class TestTimestampChannel:
     def test_basic_timestamp(self, tmp_path):
         # NI epoch: 1904-01-01; Unix epoch: 1970-01-01
@@ -156,13 +166,14 @@ class TestTimestampChannel:
 # Multi-segment accumulation
 # ---------------------------------------------------------------------------
 
+
 class TestMultiSegment:
     def test_two_segments_data_accumulates(self, tmp_path):
         path = tmp_path / "test.tdms"
         ch = Channel("G", "C", DataType.I32)
         with TdmsWriter(str(path)) as w:
             w.write_segment([(ch, [1, 2, 3])])
-            w.write_segment([(ch, [4, 5, 6, 7])])   # different count → new segment
+            w.write_segment([(ch, [4, 5, 6, 7])])  # different count → new segment
         result = channel_data(path, "G", "C")
         np.testing.assert_array_equal(result, [1, 2, 3, 4, 5, 6, 7])
 
@@ -195,6 +206,7 @@ class TestMultiSegment:
 # Multiple groups
 # ---------------------------------------------------------------------------
 
+
 class TestMultipleGroups:
     def test_two_groups_readable(self, tmp_path):
         path = tmp_path / "test.tdms"
@@ -220,6 +232,7 @@ class TestMultipleGroups:
 # ---------------------------------------------------------------------------
 # Properties round-trip
 # ---------------------------------------------------------------------------
+
 
 class TestPropertiesRoundTrip:
     def test_channel_string_property(self, tmp_path):
@@ -256,16 +269,13 @@ class TestPropertiesRoundTrip:
         with TdmsWriter(str(path)) as w:
             w.write_segment([(ch, [1])])
         props = channel_properties(path, "G", "C")
-        assert props["enabled"] == True
+        assert props["enabled"] is True
 
     def test_file_string_property(self, tmp_path):
         path = tmp_path / "test.tdms"
         ch = Channel("G", "C", DataType.I32)
         with TdmsWriter(str(path)) as w:
-            w.write_segment(
-                [(ch, [1])],
-                file_properties={"author": (DataType.STRING, "Alice")}
-            )
+            w.write_segment([(ch, [1])], file_properties={"author": (DataType.STRING, "Alice")})
         props = file_properties(path)
         assert props["author"] == "Alice"
 
@@ -273,10 +283,7 @@ class TestPropertiesRoundTrip:
         path = tmp_path / "test.tdms"
         ch = Channel("G", "C", DataType.I32)
         with TdmsWriter(str(path)) as w:
-            w.write_segment(
-                [(ch, [1])],
-                file_properties={"version": (DataType.I32, 3)}
-            )
+            w.write_segment([(ch, [1])], file_properties={"version": (DataType.I32, 3)})
         props = file_properties(path)
         assert props["version"] == 3
 
@@ -297,6 +304,7 @@ class TestPropertiesRoundTrip:
 # ---------------------------------------------------------------------------
 # Special characters in names
 # ---------------------------------------------------------------------------
+
 
 class TestSpecialNamesCompat:
     def test_group_with_single_quote(self, tmp_path):
@@ -319,6 +327,7 @@ class TestSpecialNamesCompat:
 # ---------------------------------------------------------------------------
 # Pre-packed bytes input round-trip
 # ---------------------------------------------------------------------------
+
 
 class TestPrePackedBytesCompat:
     def test_float64_bytes_input(self, tmp_path):
@@ -345,6 +354,7 @@ class TestPrePackedBytesCompat:
 # ---------------------------------------------------------------------------
 # Waveform pattern (predefined properties)
 # ---------------------------------------------------------------------------
+
 
 class TestWaveformPattern:
     def test_wf_properties_readable(self, tmp_path):

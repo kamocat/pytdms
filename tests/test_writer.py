@@ -18,16 +18,17 @@ nptdms-based round-trip tests live in test_nptdms_compat.py.
 """
 
 import struct
+
 import pytest
 
-from pytdms.constants import DataType, TAG, LEAD_IN_SIZE
 from pytdms.channel import Channel
+from pytdms.constants import LEAD_IN_SIZE, TAG, DataType
 from tests.conftest import make_mem_writer
-
 
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
+
 
 def count_segments(buf_bytes):
     """Count how many TDSm lead-in tags appear in a bytes object."""
@@ -51,7 +52,7 @@ def read_lead_in(buf_bytes, seg_index=0):
             raise IndexError("Segment %d not found" % seg_index)
         pos = idx + 1
     seg_start = pos - 1
-    assert buf_bytes[seg_start:seg_start + 4] == TAG
+    assert buf_bytes[seg_start : seg_start + 4] == TAG
     toc, version = struct.unpack_from("<II", buf_bytes, seg_start + 4)
     next_seg, raw_off = struct.unpack_from("<QQ", buf_bytes, seg_start + 12)
     return toc, version, next_seg, raw_off
@@ -60,6 +61,7 @@ def read_lead_in(buf_bytes, seg_index=0):
 # ---------------------------------------------------------------------------
 # Basic single-channel writes
 # ---------------------------------------------------------------------------
+
 
 class TestSingleChannel:
     def test_lead_in_tag(self):
@@ -144,6 +146,7 @@ class TestSingleChannel:
 # String channels
 # ---------------------------------------------------------------------------
 
+
 class TestStringChannel:
     def test_string_single_value(self):
         ch = Channel("G", "C", DataType.STRING)
@@ -165,14 +168,15 @@ class TestStringChannel:
         off0 = struct.unpack_from("<I", raw, 0)[0]
         off1 = struct.unpack_from("<I", raw, 4)[0]
         payload = raw[8:]
-        assert off0 == 2   # end of "ab"
-        assert off1 == 5   # end of "cde"
+        assert off0 == 2  # end of "ab"
+        assert off1 == 5  # end of "cde"
         assert payload == b"abcde"
 
 
 # ---------------------------------------------------------------------------
 # Pre-packed bytes input
 # ---------------------------------------------------------------------------
+
 
 class TestPrePackedBytes:
     def test_bytes_input(self):
@@ -201,16 +205,16 @@ class TestPrePackedBytes:
 
     def test_bad_length_raises(self):
         ch = Channel("G", "C", DataType.I32)
-        bad = b"\x00\x00\x01"   # 3 bytes, not a multiple of 4
+        bad = b"\x00\x00\x01"  # 3 bytes, not a multiple of 4
         w, buf = make_mem_writer()
-        with w:
-            with pytest.raises(ValueError, match="multiple"):
-                w.write_segment([(ch, bad)])
+        with w, pytest.raises(ValueError, match="multiple"):
+            w.write_segment([(ch, bad)])
 
 
 # ---------------------------------------------------------------------------
 # Same-segment append optimisation
 # ---------------------------------------------------------------------------
+
 
 class TestSameSegmentAppend:
     def test_two_chunks_one_segment(self):
@@ -256,16 +260,17 @@ class TestSameSegmentAppend:
         w, buf = make_mem_writer()
         with w:
             w.write_segment([(ch, [1, 2, 3])])
-            w.write_segment([(ch, [4, 5])])    # different count
+            w.write_segment([(ch, [4, 5])])  # different count
         # Different count → different signature → NEW segment
         # (our writer treats num_values as part of the signature)
         # This is conservative but always correct.
-        assert count_segments(buf.getvalue()) >= 1   # either 1 or 2 is valid
+        assert count_segments(buf.getvalue()) >= 1  # either 1 or 2 is valid
 
 
 # ---------------------------------------------------------------------------
 # Layout change → new segment
 # ---------------------------------------------------------------------------
+
 
 class TestNewSegmentOnChange:
     def test_channel_added_new_segment(self):
@@ -300,6 +305,7 @@ class TestNewSegmentOnChange:
 # Multiple channels and groups
 # ---------------------------------------------------------------------------
 
+
 class TestMultipleChannels:
     def test_two_channels_interleaved_in_file(self):
         ch1 = Channel("G", "C1", DataType.I32)
@@ -325,6 +331,7 @@ class TestMultipleChannels:
 # ---------------------------------------------------------------------------
 # Properties
 # ---------------------------------------------------------------------------
+
 
 class TestProperties:
     def test_channel_string_property_in_bytes(self):
@@ -364,6 +371,7 @@ class TestProperties:
 # Special characters in names
 # ---------------------------------------------------------------------------
 
+
 class TestSpecialNames:
     def test_single_quote_in_group(self):
         ch = Channel("Dr. T's Lab", "Ch", DataType.I32)
@@ -371,26 +379,27 @@ class TestSpecialNames:
         with w:
             w.write_segment([(ch, [1])])
         # Escaped: Dr. T''s Lab
-        assert "Dr. T''s Lab".encode("utf-8") in buf.getvalue()
+        assert b"Dr. T''s Lab" in buf.getvalue()
 
     def test_single_quote_in_channel(self):
         ch = Channel("G", "it's", DataType.I32)
         w, buf = make_mem_writer()
         with w:
             w.write_segment([(ch, [1])])
-        assert "it''s".encode("utf-8") in buf.getvalue()
+        assert b"it''s" in buf.getvalue()
 
     def test_unicode_names(self):
         ch = Channel("Messung", "Temperatur_°C", DataType.FLOAT32)
         w, buf = make_mem_writer()
         with w:
             w.write_segment([(ch, [20.0])])
-        assert "Temperatur_°C".encode("utf-8") in buf.getvalue()
+        assert "Temperatur_°C".encode() in buf.getvalue()
 
 
 # ---------------------------------------------------------------------------
 # Context manager
 # ---------------------------------------------------------------------------
+
 
 class TestContextManager:
     def test_file_closed_after_with(self, tmp_path):
@@ -418,6 +427,7 @@ class TestContextManager:
 # Large write (performance smoke test)
 # ---------------------------------------------------------------------------
 
+
 class TestLargeWrite:
     def test_10k_values_single_segment(self):
         ch = Channel("G", "C", DataType.FLOAT64)
@@ -426,7 +436,7 @@ class TestLargeWrite:
         with w:
             w.write_segment([(ch, values)])
         data = buf.getvalue()
-        assert len(data) == LEAD_IN_SIZE + len(data) - LEAD_IN_SIZE   # trivially true
+        assert len(data) == LEAD_IN_SIZE + len(data) - LEAD_IN_SIZE  # trivially true
         # Verify last value
         last = struct.unpack_from("<d", data, len(data) - 8)[0]
         assert abs(last - values[-1]) < 1e-15
@@ -444,6 +454,7 @@ class TestLargeWrite:
 # Invalid inputs
 # ---------------------------------------------------------------------------
 
+
 class TestInvalidInputs:
     def test_empty_segment_is_noop(self):
         w, buf = make_mem_writer()
@@ -454,9 +465,8 @@ class TestInvalidInputs:
     def test_bytes_for_string_channel_raises(self):
         ch = Channel("G", "C", DataType.STRING)
         w, buf = make_mem_writer()
-        with w:
-            with pytest.raises(ValueError, match="STRING"):
-                w.write_segment([(ch, b"raw bytes")])
+        with w, pytest.raises(ValueError, match="STRING"):
+            w.write_segment([(ch, b"raw bytes")])
 
     def test_invalid_data_type_in_channel(self):
         with pytest.raises(ValueError):

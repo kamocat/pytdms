@@ -19,29 +19,27 @@ try:
     import aiofile as _aiofile
 except ImportError as _err:
     raise ImportError(
-        "AsyncTdmsWriter requires 'aiofile'. "
-        "Install it with: pip install \"pytdms[async]\""
+        "AsyncTdmsWriter requires 'aiofile'. " 'Install it with: pip install "pytdms[async]"'
     ) from _err
 
+from pytdms.channel import file_object_path, group_path
 from pytdms.constants import (
     LEAD_IN_SIZE,
     TOC_DEFAULT,
-    DataType, _TYPE_INFO,
 )
 from pytdms.encoder import (
     pack_lead_in,
-    pack_raw_index,
     pack_no_data_index,
-    pack_same_index,
     pack_object_meta,
+    pack_raw_index,
+    pack_same_index,
     pack_values,
     validate_raw_bytes,
 )
-from pytdms.channel import file_object_path, group_path
 from pytdms.writer import (
+    _NEXT_SEG_OFFSET_POS,
     _channel_signature,
     _is_bytes_like,
-    _NEXT_SEG_OFFSET_POS,
 )
 
 _FMT_U32 = struct.Struct("<I")
@@ -116,10 +114,7 @@ class AsyncTdmsWriter:
 
         new_sigs = [_channel_signature(ch, n) for ch, _, n, _ in packed]
 
-        if (
-            self._current_sigs is not None
-            and new_sigs == self._current_sigs
-        ):
+        if self._current_sigs is not None and new_sigs == self._current_sigs:
             await self._append_chunk(packed)
         else:
             await self._write_new_segment(packed, file_properties, new_sigs)

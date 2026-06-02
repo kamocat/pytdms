@@ -15,34 +15,33 @@ no ``pathlib``.
 
 import struct
 
+from pytdms.channel import file_object_path, group_path
 from pytdms.constants import (
     LEAD_IN_SIZE,
-    ToC, TOC_DEFAULT, TOC_CONTINUATION,
-    DataType, _TYPE_INFO,
+    TOC_CONTINUATION,
+    TOC_DEFAULT,
 )
 from pytdms.encoder import (
-    encode_string,
     pack_lead_in,
-    pack_raw_index,
     pack_no_data_index,
-    pack_same_index,
     pack_object_meta,
-    pack_property,
+    pack_raw_index,
+    pack_same_index,
     pack_values,
     validate_raw_bytes,
 )
-from pytdms.channel import file_object_path, group_path
 
 _FMT_U32 = struct.Struct("<I")
 _FMT_U64 = struct.Struct("<Q")
 
 # Byte offset of next_segment_offset within the lead-in
-_NEXT_SEG_OFFSET_POS = 12   # 4 (tag) + 4 (toc) + 4 (version)
+_NEXT_SEG_OFFSET_POS = 12  # 4 (tag) + 4 (toc) + 4 (version)
 
 
 # ---------------------------------------------------------------------------
 # Internal helpers
 # ---------------------------------------------------------------------------
+
 
 def _channel_signature(channel, num_values):
     """Return a tuple that uniquely identifies a channel's raw-data layout."""
@@ -58,6 +57,7 @@ def _is_bytes_like(obj):
 # ---------------------------------------------------------------------------
 # TdmsWriter
 # ---------------------------------------------------------------------------
+
 
 class TdmsWriter:
     """Stream data to a TDMS file.
@@ -86,12 +86,12 @@ class TdmsWriter:
             self._file = file_or_path
             self._owns_file = False
         else:
-            self._file = open(str(file_or_path), "wb+")
+            self._file = open(str(file_or_path), "wb+")  # noqa: SIM115 – must stay open across multiple write_segment calls
             self._owns_file = True
 
         # Check seek capability (needed for same-segment append optimisation)
         try:
-            self._file.seek(0, 1)   # SEEK_CUR
+            self._file.seek(0, 1)  # SEEK_CUR
             self._seekable = True
         except (AttributeError, OSError):
             self._seekable = False
@@ -134,7 +134,7 @@ class TdmsWriter:
             return
 
         # Pack raw data for all channels first (resolves value counts)
-        packed = []         # list of (Channel, raw_bytes, num_values, extra)
+        packed = []  # list of (Channel, raw_bytes, num_values, extra)
         for channel, data in channel_data_list:
             if _is_bytes_like(data):
                 n = validate_raw_bytes(channel.data_type, data, None)
@@ -147,11 +147,7 @@ class TdmsWriter:
         # Build signatures for layout-change detection
         new_sigs = [_channel_signature(ch, n) for ch, _, n, _ in packed]
 
-        if (
-            self._seekable
-            and self._current_sigs is not None
-            and new_sigs == self._current_sigs
-        ):
+        if self._seekable and self._current_sigs is not None and new_sigs == self._current_sigs:
             # ---- Same layout: append raw data to existing segment -----------
             self._append_chunk(packed)
         else:
@@ -182,7 +178,7 @@ class TdmsWriter:
         raw_bytes = b"".join(rb for _, rb, _, _ in packed)
 
         # Move to end of file and append
-        self._file.seek(0, 2)   # SEEK_END
+        self._file.seek(0, 2)  # SEEK_END
         self._file.write(raw_bytes)
         self._seg_end = self._file.tell()
 
@@ -212,21 +208,18 @@ class TdmsWriter:
                 prev_types[ch.path] = ch.data_type
 
         # Detect if the channel set / order changed
-        channel_order_changed = (
-            self._current_channels is None or
-            [ch.path for ch in channels] != [ch.path for ch in self._current_channels]
-        )
+        channel_order_changed = self._current_channels is None or [ch.path for ch in channels] != [
+            ch.path for ch in self._current_channels
+        ]
 
         # ---- Build meta data bytes ----------------------------------------
         meta = bytearray()
-        objects = []    # accumulate object descriptions
+        objects = []  # accumulate object descriptions
 
         # File object (only the first segment ever, or if file_properties given)
         if not self._written_file_obj or file_properties:
             fp = list(file_properties.items()) if file_properties else []
-            file_props_triples = [
-                (n, dt, v) for n, (dt, v) in fp
-            ]
+            file_props_triples = [(n, dt, v) for n, (dt, v) in fp]
             objects.append(
                 pack_object_meta(
                     file_object_path(),
@@ -245,13 +238,11 @@ class TdmsWriter:
                 self._written_groups.add(gp)
 
         for gp in new_groups_this_seg:
-            objects.append(
-                pack_object_meta(gp, pack_no_data_index(), None)
-            )
+            objects.append(pack_object_meta(gp, pack_no_data_index(), None))
 
         # Channel objects
         for ch, raw_bytes, num_values, extra in packed:
-            is_new = (ch.path not in prev_paths or prev_types.get(ch.path) != ch.data_type)
+            is_new = ch.path not in prev_paths or prev_types.get(ch.path) != ch.data_type
             if is_new:
                 index = pack_raw_index(ch.data_type, num_values, extra)
             else:
@@ -267,12 +258,8 @@ class TdmsWriter:
                     index = pack_raw_index(ch.data_type, num_values, extra)
 
             # Channel properties
-            prop_triples = [
-                (n, dt, v) for n, (dt, v) in ch.properties.items()
-            ]
-            objects.append(
-                pack_object_meta(ch.path, index, prop_triples)
-            )
+            prop_triples = [(n, dt, v) for n, (dt, v) in ch.properties.items()]
+            objects.append(pack_object_meta(ch.path, index, prop_triples))
 
         # Prefix the object list with the object count
         meta += _FMT_U32.pack(len(objects))
@@ -283,12 +270,12 @@ class TdmsWriter:
         raw_data = b"".join(rb for _, rb, _, _ in packed)
 
         # ---- Compute offsets and write the segment -----------------------
-        raw_data_offset = len(meta)   # bytes from end-of-lead-in to raw data
+        raw_data_offset = len(meta)  # bytes from end-of-lead-in to raw data
         next_seg_offset = raw_data_offset + len(raw_data)
 
         # ToC: set kTocNewObjList when object list changed
         if channel_order_changed or new_groups_this_seg or not self._written_file_obj:
-            toc = TOC_DEFAULT   # META | NEW_OBJ_LIST | RAW
+            toc = TOC_DEFAULT  # META | NEW_OBJ_LIST | RAW
         else:
             toc = TOC_CONTINUATION  # META | RAW
 
@@ -298,7 +285,7 @@ class TdmsWriter:
         lead_in = pack_lead_in(toc, next_seg_offset, raw_data_offset)
 
         # Seek to end and remember segment start
-        self._file.seek(0, 2)   # SEEK_END
+        self._file.seek(0, 2)  # SEEK_END
         self._seg_start = self._file.tell()
 
         self._file.write(bytes(lead_in))

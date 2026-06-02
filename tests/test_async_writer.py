@@ -7,26 +7,27 @@ Each test runs its coroutine via asyncio.run().  Tests that need nptdms
 
 import asyncio
 import struct
+
 import pytest
 
-from pytdms.constants import DataType, TAG, LEAD_IN_SIZE
 from pytdms.channel import Channel
-from tests.conftest import requires_nptdms, channel_data
+from pytdms.constants import TAG, DataType
+from tests.conftest import channel_data, requires_nptdms
 
 try:
     from pytdms.async_writer import AsyncTdmsWriter
+
     HAS_ASYNC = True
 except ImportError:
     HAS_ASYNC = False
 
-pytestmark = pytest.mark.skipif(
-    not HAS_ASYNC, reason="aiofile not installed"
-)
+pytestmark = pytest.mark.skipif(not HAS_ASYNC, reason="aiofile not installed")
 
 
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
+
 
 def run(coro):
     return asyncio.run(coro)
@@ -47,6 +48,7 @@ def count_tag(data):
 # ---------------------------------------------------------------------------
 # Basic writes
 # ---------------------------------------------------------------------------
+
 
 class TestAsyncBasic:
     def test_single_int32_segment(self, tmp_path):
@@ -114,6 +116,7 @@ class TestAsyncBasic:
 # Same-segment append optimisation
 # ---------------------------------------------------------------------------
 
+
 class TestAsyncAppend:
     def test_three_same_chunks_one_segment(self, tmp_path):
         path = tmp_path / "test.tdms"
@@ -158,6 +161,7 @@ class TestAsyncAppend:
 # Properties
 # ---------------------------------------------------------------------------
 
+
 class TestAsyncProperties:
     def test_channel_property_in_output(self, tmp_path):
         path = tmp_path / "test.tdms"
@@ -178,8 +182,7 @@ class TestAsyncProperties:
         async def go():
             async with AsyncTdmsWriter(str(path)) as w:
                 await w.write_segment(
-                    [(ch, [1])],
-                    file_properties={"title": (DataType.STRING, "MyTest")}
+                    [(ch, [1])], file_properties={"title": (DataType.STRING, "MyTest")}
                 )
 
         run(go())
@@ -189,6 +192,7 @@ class TestAsyncProperties:
 # ---------------------------------------------------------------------------
 # Context manager
 # ---------------------------------------------------------------------------
+
 
 class TestAsyncContextManager:
     def test_close_called_on_exit(self, tmp_path):
@@ -228,6 +232,7 @@ class TestAsyncContextManager:
 # nptdms round-trip via async writer
 # ---------------------------------------------------------------------------
 
+
 class TestAsyncNptdmsRoundTrip:
     @requires_nptdms
     def test_float64_round_trip(self, tmp_path):
@@ -241,6 +246,7 @@ class TestAsyncNptdmsRoundTrip:
 
         run(go())
         import numpy as np
+
         result = channel_data(path, "Sensors", "Temp")
         np.testing.assert_allclose(result, expected, rtol=1e-15)
 
@@ -256,6 +262,7 @@ class TestAsyncNptdmsRoundTrip:
 
         run(go())
         import numpy as np
+
         result = channel_data(path, "G", "C")
         np.testing.assert_array_equal(result, [1, 2, 3, 4, 5, 6])
 

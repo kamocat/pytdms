@@ -5,26 +5,26 @@ These tests have no I/O and do not require nptdms.
 """
 
 import struct
+
 import pytest
 
-from pytdms.constants import DataType, LEAD_IN_SIZE, TAG, VERSION
+from pytdms.constants import LEAD_IN_SIZE, TAG, VERSION, DataType
 from pytdms.encoder import (
     encode_string,
     encode_value,
     pack_lead_in,
-    pack_raw_index,
     pack_no_data_index,
-    pack_same_index,
     pack_property,
-    pack_object_meta,
+    pack_raw_index,
+    pack_same_index,
     pack_values,
     validate_raw_bytes,
 )
 
-
 # ---------------------------------------------------------------------------
 # encode_string
 # ---------------------------------------------------------------------------
+
 
 class TestEncodeString:
     def test_ascii(self):
@@ -35,18 +35,18 @@ class TestEncodeString:
     def test_empty(self):
         result = encode_string("")
         assert len(result) == 4
-        assert result == bytearray(4)   # length=0, no payload
+        assert result == bytearray(4)  # length=0, no payload
 
     def test_utf8_multibyte(self):
         # "café" — 'é' is 2 bytes in UTF-8
         result = encode_string("café")
-        utf8 = "café".encode("utf-8")
+        utf8 = "café".encode()
         assert result[:4] == struct.pack("<I", len(utf8))
         assert result[4:] == utf8
 
     def test_path_with_single_quote(self):
         result = encode_string("it's")
-        utf8 = "it's".encode("utf-8")
+        utf8 = b"it's"
         assert result[4:] == utf8
 
     def test_returns_bytearray(self):
@@ -61,6 +61,7 @@ class TestEncodeString:
 # ---------------------------------------------------------------------------
 # encode_value
 # ---------------------------------------------------------------------------
+
 
 class TestEncodeValue:
     def test_i8(self):
@@ -119,6 +120,7 @@ class TestEncodeValue:
 # pack_lead_in
 # ---------------------------------------------------------------------------
 
+
 class TestPackLeadIn:
     def test_size(self):
         li = pack_lead_in(0x0E, 100, 50)
@@ -156,6 +158,7 @@ class TestPackLeadIn:
 # pack_raw_index
 # ---------------------------------------------------------------------------
 
+
 class TestPackRawIndex:
     def test_fixed_size(self):
         # u32 payload_len + u32 dtype + u32 dim + u64 num_values = 20 bytes
@@ -165,7 +168,7 @@ class TestPackRawIndex:
     def test_fixed_payload_len(self):
         result = pack_raw_index(DataType.I32, 50)
         payload_len = struct.unpack("<I", result[:4])[0]
-        assert payload_len == 12   # 4+4+8
+        assert payload_len == 12  # 4+4+8
 
     def test_fixed_data_type(self):
         result = pack_raw_index(DataType.FLOAT32, 10)
@@ -211,6 +214,7 @@ class TestPackRawIndex:
 # pack_property
 # ---------------------------------------------------------------------------
 
+
 class TestPackProperty:
     def test_string_property_round_trip_fields(self):
         raw = pack_property("author", DataType.STRING, "Alice")
@@ -245,6 +249,7 @@ class TestPackProperty:
 # pack_values
 # ---------------------------------------------------------------------------
 
+
 class TestPackValues:
     def test_int32_list(self):
         raw, n, extra = pack_values(DataType.I32, [1, 2, 3])
@@ -275,11 +280,11 @@ class TestPackValues:
         assert n == 2
         # END offsets: cumulative byte position of the end of each string
         off0 = struct.unpack_from("<I", raw, 0)[0]
-        assert off0 == 2   # end of "ab"
+        assert off0 == 2  # end of "ab"
         off1 = struct.unpack_from("<I", raw, 4)[0]
-        assert off1 == 5   # end of "cde"
+        assert off1 == 5  # end of "cde"
         # Total raw bytes: 4*n (offset array) + payload
-        assert total == 4 * 2 + 5   # == 13
+        assert total == 4 * 2 + 5  # == 13
         # Payload
         assert raw[8:] == b"abcde"
 
@@ -302,6 +307,7 @@ class TestPackValues:
 # ---------------------------------------------------------------------------
 # validate_raw_bytes
 # ---------------------------------------------------------------------------
+
 
 class TestValidateRawBytes:
     def test_valid_i32(self):

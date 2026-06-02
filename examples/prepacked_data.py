@@ -27,7 +27,8 @@ Type sizes
 """
 
 import struct
-from pytdms import TdmsWriter, Channel, DataType
+
+from pytdms import Channel, DataType, TdmsWriter
 
 OUTPUT_FILE = "prepacked_output.tdms"
 
@@ -58,9 +59,12 @@ bool_raw: bytes = bytes([1, 0, 1, 1, 0, 0, 1, 0])
 # A TIMESTAMP channel: two samples, fractions = 0 for simplicity
 # NI epoch is 1904-01-01; Unix epoch 1970-01-01 differs by 2 082 844 800 s.
 NI_EPOCH_OFFSET = 2_082_844_800
-ts_raw: bytes = struct.pack("<qQqQ",
-    NI_EPOCH_OFFSET + 1_000_000,  0,   # sample 0: 1970-01-12 13:46:40 UTC
-    NI_EPOCH_OFFSET + 2_000_000,  0,   # sample 1: 1970-01-24 03:33:20 UTC
+ts_raw: bytes = struct.pack(
+    "<qQqQ",
+    NI_EPOCH_OFFSET + 1_000_000,
+    0,  # sample 0: 1970-01-12 13:46:40 UTC
+    NI_EPOCH_OFFSET + 2_000_000,
+    0,  # sample 1: 1970-01-24 03:33:20 UTC
 )
 
 
@@ -69,48 +73,55 @@ ts_raw: bytes = struct.pack("<qQqQ",
 # ---------------------------------------------------------------------------
 large_buffer = bytearray(struct.pack("<IIIIIIII", 10, 20, 30, 40, 50, 60, 70, 80))
 # Only send the first 4 samples — no copy needed
-u32_slice = memoryview(large_buffer)[:16]   # 4 × 4 bytes
+u32_slice = memoryview(large_buffer)[:16]  # 4 × 4 bytes
 
 
 # ---------------------------------------------------------------------------
 # 3. Writing to a TDMS file
 # ---------------------------------------------------------------------------
-ch_adc  = Channel("Sensors", "ADC_Raw",   DataType.I16)
-ch_eu   = Channel("Sensors", "EU_Signal", DataType.FLOAT32)
-ch_bool = Channel("Sensors", "Gate",      DataType.BOOLEAN)
-ch_ts   = Channel("Sensors", "Timestamp", DataType.TIMESTAMP)
-ch_u32  = Channel("Control", "Counter",   DataType.U32)
+ch_adc = Channel("Sensors", "ADC_Raw", DataType.I16)
+ch_eu = Channel("Sensors", "EU_Signal", DataType.FLOAT32)
+ch_bool = Channel("Sensors", "Gate", DataType.BOOLEAN)
+ch_ts = Channel("Sensors", "Timestamp", DataType.TIMESTAMP)
+ch_u32 = Channel("Control", "Counter", DataType.U32)
 
 with TdmsWriter(OUTPUT_FILE) as writer:
     # First chunk: all channels, first batch of data
-    writer.write_segment([
-        (ch_adc,  adc_raw),
-        (ch_eu,   eu_raw),
-        (ch_bool, bool_raw),
-        (ch_ts,   ts_raw),
-        (ch_u32,  u32_slice),
-    ])
+    writer.write_segment(
+        [
+            (ch_adc, adc_raw),
+            (ch_eu, eu_raw),
+            (ch_bool, bool_raw),
+            (ch_ts, ts_raw),
+            (ch_u32, u32_slice),
+        ]
+    )
 
     # Subsequent chunks using the SAME channel layout reuse the open segment
     # (the same-segment append optimisation) — only raw bytes are written, no
     # metadata overhead.
     for i in range(4):
-        next_adc  = struct.pack("<hhhhhhhh", *(j + i * 10 for j in range(8)))
-        next_eu   = struct.pack("<ffff", float(i), float(i) + 0.5, -float(i), 0.0)
+        next_adc = struct.pack("<hhhhhhhh", *(j + i * 10 for j in range(8)))
+        next_eu = struct.pack("<ffff", float(i), float(i) + 0.5, -float(i), 0.0)
         next_bool = bytes([i % 2] * 8)
-        next_ts   = struct.pack("<qQqQ",
-            NI_EPOCH_OFFSET + (3 + i) * 1_000_000, 0,
-            NI_EPOCH_OFFSET + (4 + i) * 1_000_000, 0,
+        next_ts = struct.pack(
+            "<qQqQ",
+            NI_EPOCH_OFFSET + (3 + i) * 1_000_000,
+            0,
+            NI_EPOCH_OFFSET + (4 + i) * 1_000_000,
+            0,
         )
-        next_u32  = struct.pack("<IIII", *range(i * 4, i * 4 + 4))
+        next_u32 = struct.pack("<IIII", *range(i * 4, i * 4 + 4))
 
-        writer.write_segment([
-            (ch_adc,  next_adc),
-            (ch_eu,   next_eu),
-            (ch_bool, next_bool),
-            (ch_ts,   next_ts),
-            (ch_u32,  next_u32),
-        ])
+        writer.write_segment(
+            [
+                (ch_adc, next_adc),
+                (ch_eu, next_eu),
+                (ch_bool, next_bool),
+                (ch_ts, next_ts),
+                (ch_u32, next_u32),
+            ]
+        )
 
 print("Written:", OUTPUT_FILE)
 
@@ -119,7 +130,6 @@ print("Written:", OUTPUT_FILE)
 # ---------------------------------------------------------------------------
 try:
     import nptdms
-    import numpy as np
 
     tdms = nptdms.TdmsFile.read(OUTPUT_FILE)
     adc_ch = tdms["Sensors"]["ADC_Raw"]

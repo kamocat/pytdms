@@ -6,12 +6,12 @@ Channel and path helpers.
 CircuitPython 10.x compatible — no ``dataclasses``, no ``typing``.
 """
 
-from pytdms.constants import DataType, _TYPE_INFO, _RAW_DATA_TYPES
-
+from pytdms.constants import _RAW_DATA_TYPES
 
 # ---------------------------------------------------------------------------
 # Path helpers
 # ---------------------------------------------------------------------------
+
 
 def _escape_name(name):
     """Replace every ``'`` with ``''`` per the TDMS path-escaping rules."""
@@ -37,6 +37,7 @@ def channel_path(group, name):
 # Channel
 # ---------------------------------------------------------------------------
 
+
 class Channel:
     """Describes a TDMS channel (its location, type, and optional properties).
 
@@ -59,9 +60,7 @@ class Channel:
 
     def __init__(self, group, name, data_type, properties=None):
         if data_type not in _RAW_DATA_TYPES:
-            raise ValueError(
-                "data_type %d is not a supported raw-data type" % data_type
-            )
+            raise ValueError("data_type %d is not a supported raw-data type" % data_type)
         self.group = group
         self.name = name
         self.data_type = data_type
@@ -81,6 +80,4 @@ class Channel:
         self.properties[name] = (data_type, value)
 
     def __repr__(self):
-        return "Channel(group=%r, name=%r, data_type=%d)" % (
-            self.group, self.name, self.data_type
-        )
+        return "Channel(group=%r, name=%r, data_type=%d)" % (self.group, self.name, self.data_type)
