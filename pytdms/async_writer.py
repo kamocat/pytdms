@@ -1,14 +1,11 @@
 """
 pytdms.async_writer
 ===================
-Asynchronous TDMS writer backed by ``aiofile``.
+Asynchronous TDMS writer backed by ``aiofile`` (CPython) or ``asyncfat``
+(CircuitPython).
 
-This module is **CPython-only** (requires Python 3.8+ and the ``aiofile``
-package).  It is not importable on CircuitPython.  All encoding logic is
-delegated to the same :mod:`pytdms.encoder` functions used by the sync writer —
-no serialisation code is duplicated here.
-
-Install the optional dependency with::
+Pass ``sd=<asdcardio.ASdCard>`` to use the asyncfat backend on CircuitPython.
+On CPython, omit ``sd`` and install the optional aiofile dependency::
 
     pip install "pytdms[async]"
 """
@@ -17,10 +14,31 @@ import struct
 
 try:
     import aiofile as _aiofile
-except ImportError as _err:
-    raise ImportError(
-        "AsyncTdmsWriter requires 'aiofile'. " 'Install it with: pip install "pytdms[async]"'
-    ) from _err
+except ImportError:
+    _aiofile = None
+
+
+class _AiofileAdapter:
+    """Wraps ``aiofile.BinaryFileWrapper`` with an async ``seek`` so that
+    :class:`AsyncTdmsWriter` uses the same ``await self._afile.seek()`` call
+    for both aiofile (CPython) and asyncfat (CircuitPython) backends."""
+
+    __slots__ = ("_f",)
+
+    def __init__(self, f):
+        self._f = f
+
+    async def seek(self, pos):
+        self._f.seek(pos)
+
+    async def write(self, data):
+        return await self._f.write(data)
+
+    async def flush(self):
+        await self._f.flush()
+
+    async def close(self):
+        await self._f.close()
 
 from pytdms.constants import (
     LEAD_IN_SIZE,
@@ -59,8 +77,9 @@ class AsyncTdmsWriter:
             await w.write_segment([(ch, [4.0, 5.0])])
     """
 
-    def __init__(self, path):
+    def __init__(self, path, sd=None):
         self._path = str(path)
+        self._sd = sd
         self._afile = None
 
         # Mirrors TdmsWriter state
@@ -75,7 +94,16 @@ class AsyncTdmsWriter:
         self._file_pos = 0
 
     async def _open(self):
-        self._afile = await _aiofile.async_open(self._path, "wb+")
+        if self._sd is not None:
+            import asyncfat as _asyncfat
+            self._afile = await _asyncfat.async_open(self._sd, self._path, "w+")
+        else:
+            if _aiofile is None:
+                raise ImportError(
+                    "AsyncTdmsWriter requires 'aiofile' on CPython. "
+                    'Install it with: pip install "pytdms[async]"'
+                )
+            self._afile = _AiofileAdapter(await _aiofile.async_open(self._path, "wb+"))
 
     # ------------------------------------------------------------------
     # Context manager
@@ -118,7 +146,8 @@ class AsyncTdmsWriter:
     async def close(self):
         """Flush and close the underlying file."""
         if self._afile is not None:
-            await self._afile.flush()
+            if hasattr(self._afile, "flush"):
+                await self._afile.flush()
             await self._afile.close()
             self._afile = None
 
@@ -132,14 +161,14 @@ class AsyncTdmsWriter:
 
     async def _append_raw(self, raw_bytes):
         """Write *raw_bytes* at current EOF and update the lead-in next_seg_offset."""
-        self._afile.seek(self._file_pos)
+        await self._afile.seek(self._file_pos)
         await self._afile.write(raw_bytes)
         self._file_pos += len(raw_bytes)
         self._seg_end = self._file_pos
         new_offset = self._seg_end - (self._seg_start + LEAD_IN_SIZE)
-        self._afile.seek(self._seg_start + _NEXT_SEG_OFFSET_POS)
+        await self._afile.seek(self._seg_start + _NEXT_SEG_OFFSET_POS)
         await self._afile.write(struct.pack("<Q", new_offset))
-        self._afile.seek(self._file_pos)
+        await self._afile.seek(self._file_pos)
 
     # ------------------------------------------------------------------
     # Internal: new segment (mirrors TdmsWriter._write_new_segment)
@@ -166,7 +195,7 @@ class AsyncTdmsWriter:
         raw_data_offset = len(meta)
         lead_in = pack_lead_in(toc, raw_data_offset + len(raw_data), raw_data_offset)
         payload = bytes(lead_in) + meta + raw_data
-        self._afile.seek(self._file_pos)
+        await self._afile.seek(self._file_pos)
         self._seg_start = self._file_pos
         await self._afile.write(payload)
         self._file_pos += len(payload)
