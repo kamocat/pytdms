@@ -48,7 +48,7 @@ OUTPUT_FILE = "prepacked_output.tdms"
 #   DataType.TIMESTAMP -> '<qQ' per sample (i64 ni_seconds, u64 fractions)
 
 imu_raw: bytes = struct.pack(
-    "<BhhhhhhBH", 0xC0, 100, -100, 50, 1, -1, 2, 25, 1500
+    "<BhhhhhhbH", 0xC0, 100, -100, 50, 1, -1, 2, 25, 1500
 )  # IMU packet: header + accel + gyro + temperature + microseconds
 
 ch_hdr = Channel("IMU", "Header", DataType.U8)
@@ -58,9 +58,39 @@ ch_az = Channel("IMU", "Accel_Z", DataType.I16)
 ch_gx = Channel("IMU", "Gyro_X", DataType.I16)
 ch_gy = Channel("IMU", "Gyro_Y", DataType.I16)
 ch_gz = Channel("IMU", "Gyro_Z", DataType.I16)
-ch_temp = Channel("IMU", "Temperature", DataType.U8)
+ch_temp = Channel("IMU", "Temperature", DataType.I8)
 ch_us = Channel("IMU", "Microseconds", DataType.U16)
 channels = [ch_hdr, ch_ax, ch_ay, ch_az, ch_gx, ch_gy, ch_gz, ch_temp, ch_us]
+
+# ---------------------------------------------------------------------------
+# Scaling properties — NI DAQmx linear-scale convention.
+# nptdms and LabVIEW apply these automatically on read-back.
+#
+# I16 full range = 65536 counts over the full span.
+#   Accel ±2 g  → slope = 4 / 65536 g/count
+#   Gyro ±250 °/s → slope = 500 / 65536 (°/s)/count
+# ---------------------------------------------------------------------------
+_ACCEL_SLOPE = 4.0 / 65536.0  # g per count
+_GYRO_SLOPE = 500.0 / 65536.0  # deg/s per count
+
+
+def _add_linear_scale(ch, slope, unit, intercept=0.0):
+    ch.add_property("NI_Scale[0]_Scale_Type", DataType.STRING, "Linear")
+    ch.add_property("NI_Scale[0]_Linear_Slope", DataType.FLOAT64, slope)
+    ch.add_property("NI_Scale[0]_Linear_Y_Intercept", DataType.FLOAT64, intercept)
+    ch.add_property("NI_Scale[0]_Input_Source", DataType.STRING, "DAQmx_Raw_Data")
+    ch.add_property("NI_Scaling_Status", DataType.STRING, "Scaled")
+    ch.add_property("unit_string", DataType.STRING, unit)
+
+
+for _ch in (ch_ax, ch_ay, ch_az):
+    _add_linear_scale(_ch, _ACCEL_SLOPE, "g")
+
+for _ch in (ch_gx, ch_gy, ch_gz):
+    _add_linear_scale(_ch, _GYRO_SLOPE, "deg/s")
+
+_add_linear_scale(ch_temp, 1 / 2.07, "°C", 25)
+_add_linear_scale(ch_us, 1.0, "µs")
 
 n = 101
 # Concatenate 32 copies to simulate a DMA ring-buffer flush
@@ -72,15 +102,15 @@ if True:  # simulate data using random walk
     d_header = 0x68
     d_ax = np.cumsum(np.random.normal(0, 10, n)).astype(np.int16)
     d_ay = np.cumsum(np.random.normal(0, 10, n)).astype(np.int16)
-    d_az = (1000 + np.cumsum(np.random.normal(0, 10, n))).astype(np.int16)
+    d_az = (16556 + np.cumsum(np.random.normal(0, 10, n))).astype(np.int16)
     d_gx = np.cumsum(np.random.normal(0, 5, n)).astype(np.int16)
     d_gy = np.cumsum(np.random.normal(0, 20, n)).astype(np.int16)
     d_gz = np.cumsum(np.random.normal(0, 50, n)).astype(np.int16)
-    d_temp = np.cumsum(np.random.normal(25, 1, n)).astype(np.uint8)
+    d_temp = np.cumsum(np.random.normal(25, 1, n)).astype(np.int8)
     d_us = np.linspace(0, 10_000, n).astype(np.uint16)
     buf_32 = b"".join(
         struct.pack(
-            "<BhhhhhhBH",
+            "<BhhhhhhbH",
             d_header,
             d_ax[i],
             d_ay[i],
