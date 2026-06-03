@@ -33,9 +33,6 @@ from pytdms.encoder import (
     validate_raw_bytes,
 )
 
-_FMT_U32 = struct.Struct("<I")
-_FMT_U64 = struct.Struct("<Q")
-
 # Byte offset of next_segment_offset within the lead-in
 _NEXT_SEG_OFFSET_POS = 12  # 4 (tag) + 4 (toc) + 4 (version)
 
@@ -122,7 +119,7 @@ def _build_segment_meta(
         prop_triples = [(n, dt, v) for n, (dt, v) in ch.properties.items()]
         objects.append(pack_object_meta(ch.path, index, prop_triples))
 
-    meta = bytearray(_FMT_U32.pack(len(objects)))
+    meta = bytearray(struct.pack("<I", len(objects)))
     for obj in objects:
         meta += obj
     return bytes(meta), new_written_file_obj, new_groups
@@ -259,7 +256,7 @@ class TdmsWriter:
         self._seg_end = self._file.tell()
         new_offset = self._seg_end - (self._seg_start + LEAD_IN_SIZE)
         self._file.seek(self._seg_start + _NEXT_SEG_OFFSET_POS)
-        self._file.write(_FMT_U64.pack(new_offset))
+        self._file.write(struct.pack("<Q", new_offset))
         self._file.flush()
 
     # ------------------------------------------------------------------

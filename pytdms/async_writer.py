@@ -41,9 +41,6 @@ from pytdms.writer import (
     _is_bytes_like,
 )
 
-_FMT_U32 = struct.Struct("<I")
-_FMT_U64 = struct.Struct("<Q")
-
 
 class AsyncTdmsWriter:
     """Asynchronous streaming TDMS writer using ``aiofile``.
@@ -141,7 +138,7 @@ class AsyncTdmsWriter:
         self._seg_end = self._file_pos
         new_offset = self._seg_end - (self._seg_start + LEAD_IN_SIZE)
         self._afile.seek(self._seg_start + _NEXT_SEG_OFFSET_POS)
-        await self._afile.write(_FMT_U64.pack(new_offset))
+        await self._afile.write(struct.pack("<Q", new_offset))
         self._afile.seek(self._file_pos)
 
     # ------------------------------------------------------------------

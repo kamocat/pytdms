@@ -23,13 +23,6 @@ from pytdms.constants import (
 )
 
 # ---------------------------------------------------------------------------
-# Struct format strings  — pre-compiled at import time for performance
-# ---------------------------------------------------------------------------
-_FMT_U32 = struct.Struct("<I")
-_FMT_U64 = struct.Struct("<Q")
-_FMT_LEAD_IN = struct.Struct("<II QQ")  # toc(u32) version(u32) next_seg(u64) raw_off(u64)
-
-# ---------------------------------------------------------------------------
 # String encoding
 # ---------------------------------------------------------------------------
 
@@ -41,7 +34,7 @@ def encode_string(s):
     """
     utf8 = s.encode("utf-8")
     out = bytearray(4 + len(utf8))
-    _FMT_U32.pack_into(out, 0, len(utf8))
+    struct.pack_into("<I", out, 0, len(utf8))
     out[4:] = utf8
     return out
 
@@ -97,7 +90,7 @@ def pack_lead_in(toc, next_seg_offset, raw_data_offset):
     """
     out = bytearray(LEAD_IN_SIZE)
     out[0:4] = TAG
-    _FMT_LEAD_IN.pack_into(out, 4, toc, VERSION, next_seg_offset, raw_data_offset)
+    struct.pack_into("<IIQQ", out, 4, toc, VERSION, next_seg_offset, raw_data_offset)
     return out
 
 
@@ -112,7 +105,7 @@ def update_next_seg_offset(buf, offset, new_value):
     ``offset`` is the absolute byte position of the lead-in in the file
     (i.e. the position of the ``TDSm`` tag).
     """
-    _FMT_U64.pack_into(buf, offset + 12, new_value)
+    struct.pack_into("<Q", buf, offset + 12, new_value)
 
 
 # ---------------------------------------------------------------------------
@@ -175,7 +168,7 @@ def pack_property(name, data_type, value):
     Returns ``bytes``.
     """
     name_bytes = encode_string(name)
-    type_bytes = _FMT_U32.pack(data_type)
+    type_bytes = struct.pack("<I", data_type)
     value_bytes = encode_value(data_type, value)
     return bytes(name_bytes) + type_bytes + value_bytes
 
@@ -209,12 +202,7 @@ def pack_object_meta(path, raw_index_bytes, properties):
     out = bytearray()
     out += path_bytes
     out += raw_index_bytes
-    _FMT_U32.pack_into(
-        bytearray(4),  # temporary; we rebuild below to avoid double allocation
-        0,
-        len(prop_list),
-    )
-    out += _FMT_U32.pack(len(prop_list))
+    out += struct.pack("<I", len(prop_list))
     out += encoded_props
     return out
 

@@ -38,11 +38,12 @@ from pytdms import Channel, DataType, TdmsWriter
 # ---------------------------------------------------------------------------
 if sys.implementation.name == "circuitpython":
     import board
+    import busio
     import sdcardio
     import storage
 
-    _spi = board.SPI()
-    _sd = sdcardio.SDCard(_spi, board.SD_CS)  # change SD_CS to match your board
+    _spi = busio.SPI(MISO=board.GP16, clock=board.GP18, MOSI=board.GP19)
+    _sd = sdcardio.SDCard(_spi, board.GP17)  # change SD_CS to match your board
     storage.mount(storage.VfsFat(_sd), "/sd")
     OUTPUT_DIR = "/sd"
 else:
@@ -116,7 +117,15 @@ def _run(mode, output_path):
     elapsed = time.monotonic() - t0
     return elapsed
 
-
+def get_size(fname):
+    sz = 0
+    with open(fname, 'rb') as f:
+        while True:
+            chunk = f.read(256)
+            if not chunk:
+                break
+            sz += len(chunk)
+    return sz
 # ---------------------------------------------------------------------------
 # Main benchmark
 # ---------------------------------------------------------------------------
@@ -139,8 +148,9 @@ def run_benchmark():
     print(f"  Total samples/ch : {total_samples}")
     print(f"  Payload bytes    : {total_bytes}")
     print("-" * 56)
-
+    print(path_il)
     elapsed_il = _run(mode="interleaved", output_path=path_il)
+    print(path_con)
     elapsed_con = _run(mode="contiguous", output_path=path_con)
 
     throughput_il = total_bytes / elapsed_il / 1024
@@ -162,10 +172,8 @@ def run_benchmark():
 
     # Verify both files contain the same number of raw payload bytes
     # (layout differs but total data size must be identical).
-    with open(path_il, "rb") as f:
-        size_il = len(f.read())
-    with open(path_con, "rb") as f:
-        size_con = len(f.read())
+    size_il = get_size(path_il)
+    size_con = get_size(path_con)
 
     if size_il == size_con:
         print(f"  File size check  : OK ({size_il} bytes each)")
