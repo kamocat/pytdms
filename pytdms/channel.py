@@ -60,7 +60,7 @@ class Channel:
 
     def __init__(self, group, name, data_type, properties=None):
         if data_type not in _RAW_DATA_TYPES:
-            raise ValueError("data_type %d is not a supported raw-data type" % data_type)
+            raise ValueError(f"data_type {data_type} is not a supported raw-data type")
         self.group = group
         self.name = name
         self.data_type = data_type
@@ -80,4 +80,4 @@ class Channel:
         self.properties[name] = (data_type, value)
 
     def __repr__(self):
-        return "Channel(group=%r, name=%r, data_type=%d)" % (self.group, self.name, self.data_type)
+        return f"Channel(group={self.group!r}, name={self.name!r}, data_type={self.data_type})"

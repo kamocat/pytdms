@@ -47,96 +47,65 @@ OUTPUT_FILE = "prepacked_output.tdms"
 #   DataType.BOOLEAN -> '<B'   (0 = False, 1 = True)
 #   DataType.TIMESTAMP -> '<qQ' per sample (i64 ni_seconds, u64 fractions)
 
-# Simulate 8 ADC samples arriving as a raw I16 buffer (e.g. from SPI DMA)
-adc_raw: bytes = struct.pack("<hhhhhhhh", 100, 200, -300, 400, -500, 600, -700, 800)
+imu_raw: bytes = struct.pack(
+    "<BhhhhhhBH", 0xC0, 100, -100, 50, 1, -1, 2, 25, 1500
+)  # IMU packet: header + accel + gyro + temperature + microseconds
 
-# A FLOAT32 engineering-unit channel packed ahead of time
-eu_raw: bytes = struct.pack("<ffff", 1.0, 2.5, -1.5, 0.0)
+ch_hdr = Channel("IMU", "Header", DataType.U8)
+ch_ax = Channel("IMU", "Accel_X", DataType.I16)
+ch_ay = Channel("IMU", "Accel_Y", DataType.I16)
+ch_az = Channel("IMU", "Accel_Z", DataType.I16)
+ch_gx = Channel("IMU", "Gyro_X", DataType.I16)
+ch_gy = Channel("IMU", "Gyro_Y", DataType.I16)
+ch_gz = Channel("IMU", "Gyro_Z", DataType.I16)
+ch_temp = Channel("IMU", "Temperature", DataType.U8)
+ch_us = Channel("IMU", "Microseconds", DataType.U16)
+channels = [ch_hdr, ch_ax, ch_ay, ch_az, ch_gx, ch_gy, ch_gz, ch_temp, ch_us]
 
-# A BOOLEAN channel packed as individual bytes
-bool_raw: bytes = bytes([1, 0, 1, 1, 0, 0, 1, 0])
+n = 101
+# Concatenate 32 copies to simulate a DMA ring-buffer flush
+buf_32 = imu_raw * n
 
-# A TIMESTAMP channel: two samples, fractions = 0 for simplicity
-# NI epoch is 1904-01-01; Unix epoch 1970-01-01 differs by 2 082 844 800 s.
-NI_EPOCH_OFFSET = 2_082_844_800
-ts_raw: bytes = struct.pack(
-    "<qQqQ",
-    NI_EPOCH_OFFSET + 1_000_000,
-    0,  # sample 0: 1970-01-12 13:46:40 UTC
-    NI_EPOCH_OFFSET + 2_000_000,
-    0,  # sample 1: 1970-01-24 03:33:20 UTC
-)
+if True:  # simulate data using random walk
+    import numpy as np
 
-
-# ---------------------------------------------------------------------------
-# 2. Packing from a memoryview (zero-copy slice of a larger buffer)
-# ---------------------------------------------------------------------------
-large_buffer = bytearray(struct.pack("<IIIIIIII", 10, 20, 30, 40, 50, 60, 70, 80))
-# Only send the first 4 samples — no copy needed
-u32_slice = memoryview(large_buffer)[:16]  # 4 × 4 bytes
-
-
-# ---------------------------------------------------------------------------
-# 3. Writing to a TDMS file
-# ---------------------------------------------------------------------------
-ch_adc = Channel("Sensors", "ADC_Raw", DataType.I16)
-ch_eu = Channel("Sensors", "EU_Signal", DataType.FLOAT32)
-ch_bool = Channel("Sensors", "Gate", DataType.BOOLEAN)
-ch_ts = Channel("Sensors", "Timestamp", DataType.TIMESTAMP)
-ch_u32 = Channel("Control", "Counter", DataType.U32)
-
-with TdmsWriter(OUTPUT_FILE) as writer:
-    # First chunk: all channels, first batch of data
-    writer.write_segment(
-        [
-            (ch_adc, adc_raw),
-            (ch_eu, eu_raw),
-            (ch_bool, bool_raw),
-            (ch_ts, ts_raw),
-            (ch_u32, u32_slice),
-        ]
+    d_header = 0x68
+    d_ax = np.cumsum(np.random.normal(0, 10, n)).astype(np.int16)
+    d_ay = np.cumsum(np.random.normal(0, 10, n)).astype(np.int16)
+    d_az = (1000 + np.cumsum(np.random.normal(0, 10, n))).astype(np.int16)
+    d_gx = np.cumsum(np.random.normal(0, 5, n)).astype(np.int16)
+    d_gy = np.cumsum(np.random.normal(0, 20, n)).astype(np.int16)
+    d_gz = np.cumsum(np.random.normal(0, 50, n)).astype(np.int16)
+    d_temp = np.cumsum(np.random.normal(25, 1, n)).astype(np.uint8)
+    d_us = np.linspace(0, 10_000, n).astype(np.uint16)
+    buf_32 = b"".join(
+        struct.pack(
+            "<BhhhhhhBH",
+            d_header,
+            d_ax[i],
+            d_ay[i],
+            d_az[i],
+            d_gx[i],
+            d_gy[i],
+            d_gz[i],
+            d_temp[i],
+            d_us[i],
+        )
+        for i in range(n)
     )
 
-    # Subsequent chunks using the SAME channel layout reuse the open segment
-    # (the same-segment append optimisation) — only raw bytes are written, no
-    # metadata overhead.
-    for i in range(4):
-        next_adc = struct.pack("<hhhhhhhh", *(j + i * 10 for j in range(8)))
-        next_eu = struct.pack("<ffff", float(i), float(i) + 0.5, -float(i), 0.0)
-        next_bool = bytes([i % 2] * 8)
-        next_ts = struct.pack(
-            "<qQqQ",
-            NI_EPOCH_OFFSET + (3 + i) * 1_000_000,
-            0,
-            NI_EPOCH_OFFSET + (4 + i) * 1_000_000,
-            0,
-        )
-        next_u32 = struct.pack("<IIII", *range(i * 4, i * 4 + 4))
-
-        writer.write_segment(
-            [
-                (ch_adc, next_adc),
-                (ch_eu, next_eu),
-                (ch_bool, next_bool),
-                (ch_ts, next_ts),
-                (ch_u32, next_u32),
-            ]
-        )
+with TdmsWriter(OUTPUT_FILE) as writer:
+    writer.write_interleaved_segment(channels, buf_32)
 
 print("Written:", OUTPUT_FILE)
 
-# ---------------------------------------------------------------------------
-# 4. Verify with nptdms (optional — requires: pip install nptdms)
-# ---------------------------------------------------------------------------
 try:
     import nptdms
 
     tdms = nptdms.TdmsFile.read(OUTPUT_FILE)
-    adc_ch = tdms["Sensors"]["ADC_Raw"]
-    print("ADC_Raw sample count :", len(adc_ch[:]))
-    print("ADC_Raw first 8 vals :", adc_ch[:8].tolist())
-    print("EU_Signal first 4    :", tdms["Sensors"]["EU_Signal"][:4].tolist())
-    print("Gate first 8         :", tdms["Sensors"]["Gate"][:8].tolist())
-    print("Counter first 4      :", tdms["Control"]["Counter"][:4].tolist())
+    az = tdms["IMU"]["Accel_Z"][:]
+    print("Accel_Z sample count :", len(az))
+    print("Accel_Z first 5 vals :", az[:5].tolist())
+    print("Microseconds  first 5 vals :", tdms["IMU"]["Microseconds"][:5].tolist())
 except ImportError:
     print("(Install nptdms to verify: pip install nptdms)")

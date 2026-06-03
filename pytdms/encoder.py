@@ -73,7 +73,7 @@ def encode_value(data_type, value):
 
     info = _TYPE_INFO.get(data_type)
     if info is None or info[0] is None:
-        raise ValueError("Unsupported data type: %d" % data_type)
+        raise ValueError(f"Unsupported data type: {data_type}")
     fmt_char, _ = info
     return struct.pack("<" + fmt_char, value)
 
@@ -220,6 +220,177 @@ def pack_object_meta(path, raw_index_bytes, properties):
 
 
 # ---------------------------------------------------------------------------
+# Interleaved raw-data layout
+# ---------------------------------------------------------------------------
+
+
+def interleave_raw_data(packed):
+    """Reorder contiguous per-channel raw bytes into interleaved TDMS wire format.
+
+    Contiguous layout (default):
+        ``[ch0_s0][ch0_s1]...[ch1_s0][ch1_s1]...``
+
+    Interleaved layout (kTocInterleavedData):
+        ``[ch0_s0][ch1_s0]...[ch0_s1][ch1_s1]...``
+
+    Parameters
+    ----------
+    packed : list of ``(channel, raw_bytes, num_values, extra)``
+        The same list used internally by ``TdmsWriter``.  All channels must
+        have the same ``num_values`` and must be fixed-width (no STRING).
+
+    Returns
+    -------
+    bytes
+        Interleaved raw data ready to write directly to the file.
+
+    Raises
+    ------
+    ValueError
+        If channels have differing sample counts or a STRING channel is present.
+    """
+    if not packed:
+        return b""
+    if len(packed) == 1:
+        return packed[0][1]  # single channel — no reordering needed
+
+    n_samples = packed[0][2]
+    sizes = []
+    for ch, raw_bytes, num_values, _ in packed:
+        if ch.data_type == DataType.STRING:
+            raise ValueError("Interleaved mode does not support STRING channels")
+        if num_values != n_samples:
+            raise ValueError(
+                "Interleaved mode requires all channels to have the same number of "
+                f"values per chunk (got {num_values} vs {n_samples})"
+            )
+        info = _TYPE_INFO.get(ch.data_type)
+        if info is None:
+            raise ValueError(f"Unsupported data type for interleaving: {ch.data_type}")
+        sizes.append(info[1])  # byte width per sample
+
+    scan_size = sum(sizes)
+    out = bytearray(scan_size * n_samples)
+    for s in range(n_samples):
+        dst = s * scan_size
+        for c, (_, raw_bytes, _, _) in enumerate(packed):
+            size = sizes[c]
+            src = s * size
+            out[dst : dst + size] = raw_bytes[src : src + size]
+            dst += size
+    return bytes(out)
+
+
+def scan_size(channels):
+    """Return the total byte width of one complete scan across *channels*.
+
+    Raises ``ValueError`` if any channel has an unsupported or variable-width
+    type (STRING).
+    """
+    total = 0
+    for ch in channels:
+        info = _TYPE_INFO.get(ch.data_type)
+        if info is None:
+            raise ValueError(f"Unsupported data type: {ch.data_type}")
+        if info[1] is None:
+            raise ValueError(
+                f"Channel '{ch.path}' has variable-width type (STRING); "
+                "cannot be used in interleaved mode"
+            )
+        total += info[1]
+    return total
+
+
+def validate_interleaved_raw(channels, raw_scans):
+    """Validate a pre-interleaved buffer against *channels* and return num_scans.
+
+    Parameters
+    ----------
+    channels  : ordered list of Channel objects matching the scan layout
+    raw_scans : bytes | bytearray | memoryview
+
+    Returns
+    -------
+    int \u2014 number of complete scans contained in *raw_scans*
+
+    Raises
+    ------
+    ValueError
+        If the buffer length is not a multiple of the scan size, or a channel
+        has an unsupported type.
+    """
+    ss = scan_size(channels)
+    n = len(raw_scans)
+    if n % ss != 0:
+        raise ValueError(f"Buffer length {n} is not a multiple of scan size {ss}")
+    return n // ss
+
+
+def byteswap_scans(channels, raw_scans):
+    """Convert a big-endian pre-interleaved scan buffer to little-endian.
+
+    For each scan, reverses the bytes of every field according to its channel's
+    type size.  TIMESTAMP samples (16 bytes) are treated as two independent
+    8-byte fields (seconds + fractions).  Single-byte fields are unchanged.
+
+    Parameters
+    ----------
+    channels  : ordered list of Channel objects
+    raw_scans : bytes | bytearray | memoryview  (big-endian source)
+
+    Returns
+    -------
+    bytes  \u2014 same data with each sample's bytes reversed to little-endian
+
+    Raises
+    ------
+    ValueError
+        If any channel has an unsupported or variable-width type.
+    """
+    # Pre-compute field swap sizes within one scan
+    # TIMESTAMP (16 bytes) is swapped as two 8-byte halves.
+    swap_sizes = []
+    for ch in channels:
+        info = _TYPE_INFO.get(ch.data_type)
+        if info is None:
+            raise ValueError(f"Unsupported data type: {ch.data_type}")
+        if info[1] is None:
+            raise ValueError(
+                f"Channel '{ch.path}' has variable-width type (STRING); cannot byteswap"
+            )
+        if ch.data_type == DataType.TIMESTAMP:
+            swap_sizes.append(8)  # swap each 8-byte half independently
+        else:
+            swap_sizes.append(info[1])
+
+    field_widths = [_TYPE_INFO[ch.data_type][1] for ch in channels]
+    ss = sum(field_widths)
+    buf = bytearray(raw_scans)
+    n_scans = len(buf) // ss
+
+    for scan_i in range(n_scans):
+        pos = scan_i * ss
+        for j in range(len(channels)):
+            fwidth = field_widths[j]
+            ssize = swap_sizes[j]
+            # A field may contain multiple independently-swapped words
+            # (currently only TIMESTAMP: fwidth=16, ssize=8 → 2 words)
+            words = fwidth // ssize
+            for w in range(words):
+                start = pos + w * ssize
+                end = start + ssize
+                # Reverse bytes in-place (CircuitPython-safe: no [::-1] assign)
+                lo, hi = start, end - 1
+                while lo < hi:
+                    buf[lo], buf[hi] = buf[hi], buf[lo]
+                    lo += 1
+                    hi -= 1
+            pos += fwidth
+
+    return bytes(buf)
+
+
+# ---------------------------------------------------------------------------
 # Raw-data packing for Python value sequences
 # ---------------------------------------------------------------------------
 
@@ -270,7 +441,7 @@ def pack_values(data_type, values):
 
     info = _TYPE_INFO.get(data_type)
     if info is None or info[0] is None:
-        raise ValueError("Unsupported data type for pack_values: %d" % data_type)
+        raise ValueError(f"Unsupported data type for pack_values: {data_type}")
     fmt_char, byte_size = info
     fmt = "<" + fmt_char * n
     return struct.pack(fmt, *values), n, None
@@ -291,15 +462,13 @@ def validate_raw_bytes(data_type, raw_bytes, expected_values):
         )
     info = _TYPE_INFO.get(data_type)
     if info is None:
-        raise ValueError("Unsupported data type: %d" % data_type)
+        raise ValueError(f"Unsupported data type: {data_type}")
     _, byte_size = info
     if byte_size is None:
-        raise ValueError("Cannot validate variable-length type: %d" % data_type)
+        raise ValueError(f"Cannot validate variable-length type: {data_type}")
     total = len(raw_bytes)
     if total % byte_size != 0:
-        raise ValueError(
-            "Raw bytes length %d is not a multiple of type size %d" % (total, byte_size)
-        )
+        raise ValueError(f"Raw bytes length {total} is not a multiple of type size {byte_size}")
     n = total // byte_size
     if expected_values is not None and n != expected_values:
         raise ValueError(

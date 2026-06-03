@@ -307,14 +307,14 @@ class TestNewSegmentOnChange:
 
 
 class TestMultipleChannels:
-    def test_two_channels_interleaved_in_file(self):
+    def test_two_channels_contiguous_in_file(self):
         ch1 = Channel("G", "C1", DataType.I32)
         ch2 = Channel("G", "C2", DataType.I32)
         w, buf = make_mem_writer()
         with w:
             w.write_segment([(ch1, [1, 2]), (ch2, [3, 4])])
         data = buf.getvalue()
-        # Raw data: ch1 values then ch2 values (contiguous, non-interleaved)
+        # write_segment is always contiguous: all ch1 values then all ch2 values
         assert data[-16:] == struct.pack("<iiii", 1, 2, 3, 4)
 
     def test_multiple_groups(self):
@@ -471,3 +471,105 @@ class TestInvalidInputs:
     def test_invalid_data_type_in_channel(self):
         with pytest.raises(ValueError):
             Channel("G", "C", 999)
+
+
+# ---------------------------------------------------------------------------
+# write_interleaved_segment
+# ---------------------------------------------------------------------------
+
+
+class TestWriteInterleavedSegment:
+    """Tests for TdmsWriter.write_interleaved_segment."""
+
+    def _make_il_writer(self):
+        from pytdms.writer import TdmsWriter
+        from tests.conftest import SeekableBytesIO
+
+        buf = SeekableBytesIO()
+        return TdmsWriter(buf), buf
+
+    def test_single_scan_bytes_match(self):
+        """One scan with mixed types: raw tail must equal the original struct."""
+        ch_hdr = Channel("IMU", "Header", DataType.U8)
+        ch_ax = Channel("IMU", "Accel_X", DataType.I16)
+        channels = [ch_hdr, ch_ax]
+        # one scan: header=0x01, ax=300
+        scan = struct.pack("<Bh", 0x01, 300)
+        w, buf = self._make_il_writer()
+        with w:
+            w.write_interleaved_segment(channels, scan)
+        assert buf.getvalue()[-3:] == scan
+
+    def test_toc_interleaved_flag_set(self):
+        ch = Channel("G", "C", DataType.I16)
+        scan = struct.pack("<h", 42)
+        w, buf = self._make_il_writer()
+        with w:
+            w.write_interleaved_segment([ch], scan)
+        toc = struct.unpack_from("<I", buf.getvalue(), 4)[0]
+        assert toc & 0x20  # kTocInterleavedData
+
+    def test_same_layout_one_segment(self):
+        ch1 = Channel("G", "A", DataType.I32)
+        ch2 = Channel("G", "B", DataType.I32)
+        scan = struct.pack("<ii", 1, 2)
+        w, buf = self._make_il_writer()
+        with w:
+            for _ in range(5):
+                w.write_interleaved_segment([ch1, ch2], scan)
+        assert count_segments(buf.getvalue()) == 1
+
+    def test_multi_scan_layout(self):
+        """3 scans of 2 I32 channels: raw tail is scan-ordered bytes."""
+        ch1 = Channel("G", "A", DataType.I32)
+        ch2 = Channel("G", "B", DataType.I32)
+        scans = struct.pack("<iiiiii", 1, 2, 3, 4, 5, 6)  # [s0_a,s0_b, s1_a,s1_b, s2_a,s2_b]
+        w, buf = self._make_il_writer()
+        with w:
+            w.write_interleaved_segment([ch1, ch2], scans)
+        assert buf.getvalue()[-24:] == scans
+
+    def test_bad_buffer_length_raises(self):
+        ch = Channel("G", "C", DataType.I32)  # 4 bytes per sample
+        bad = b"\x00" * 7  # not a multiple of 4
+        w, buf = self._make_il_writer()
+        with w, pytest.raises(ValueError, match="multiple"):
+            w.write_interleaved_segment([ch], bad)
+
+    def test_string_channel_raises(self):
+        ch = Channel("G", "C", DataType.STRING)
+        w, buf = self._make_il_writer()
+        with w, pytest.raises(ValueError):
+            w.write_interleaved_segment([ch], b"hello")
+
+    def test_invalid_endian_raises(self):
+        ch = Channel("G", "C", DataType.I16)
+        w, buf = self._make_il_writer()
+        with w, pytest.raises(ValueError, match="endian"):
+            w.write_interleaved_segment([ch], struct.pack("<h", 1), endian="middle")
+
+    def test_big_endian_byteswap_i16(self):
+        """Big-endian I16 input should be swapped to little-endian on disk."""
+        ch = Channel("G", "C", DataType.I16)
+        value = 0x1234
+        big_endian_scan = struct.pack(">h", value)  # b'\x124'
+        little_endian = struct.pack("<h", value)  # b'4\x12'
+        w, buf = self._make_il_writer()
+        with w:
+            w.write_interleaved_segment([ch], big_endian_scan, endian="big")
+        assert buf.getvalue()[-2:] == little_endian
+
+    def test_file_size_matches_write_segment(self):
+        """Total file bytes must be identical for equivalent data via both methods."""
+        ch1 = Channel("G", "A", DataType.I32)
+        ch2 = Channel("G", "B", DataType.I32)
+        # write_segment path (contiguous)
+        w1, buf1 = make_mem_writer()
+        with w1:
+            w1.write_segment([(ch1, [1, 2]), (ch2, [3, 4])])
+        # write_interleaved_segment path
+        scans = struct.pack("<iiii", 1, 3, 2, 4)  # scan-ordered
+        w2, buf2 = self._make_il_writer()
+        with w2:
+            w2.write_interleaved_segment([ch1, ch2], scans)
+        assert len(buf1.getvalue()) == len(buf2.getvalue())
