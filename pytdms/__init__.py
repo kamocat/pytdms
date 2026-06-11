@@ -3,16 +3,18 @@ pytdms — Pure-Python streaming TDMS writer.
 
 Public API
 ----------
-``Channel``         — describes a TDMS channel (group, name, data type, properties)
-``DataType``        — integer constants for all supported TDMS data types
-``ToC``             — Table-of-Contents bitmask constants
-``TdmsWriter``      — synchronous streaming writer (CircuitPython compatible)
-``AsyncTdmsWriter`` — asynchronous writer (CPython + aiofile only; imported lazily)
+``Channel``              — describes a TDMS channel (group, name, data type, properties)
+``DataType``             — integer constants for all supported TDMS data types
+``ToC``                  — Table-of-Contents bitmask constants
+``TdmsWriter``           — synchronous streaming writer (CircuitPython compatible)
+``TdmsSegmentGenerator`` — I/O-free metadata generator (high-performance async/SD card I/O)
+``AsyncTdmsWriter``      — asynchronous writer (CPython + aiofile only; imported lazily)
 """
 
 from pytdms.channel import Channel
 from pytdms.constants import DataType, ToC
 from pytdms.writer import TdmsWriter
+from pytdms.generator import TdmsSegmentGenerator
 
 
 def _lazy_async():
@@ -26,4 +28,5 @@ __all__ = [
     "ToC",
     "Channel",
     "TdmsWriter",
+    "TdmsSegmentGenerator",
 ]

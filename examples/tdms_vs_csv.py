@@ -1,10 +1,11 @@
-import pytdms
 import board
 import busio
 import sdcardio
 import storage
 import time
 import struct
+from pytdms import Channel, DataType
+from pytdms.generator import TdmsSegmentGenerator
 
 _spi = busio.SPI(MISO=board.GP16, clock=board.GP18, MOSI=board.GP19)
 _sd = sdcardio.SDCard(_spi, board.GP17)  # change SD_CS to match your board
@@ -22,27 +23,20 @@ elapsed = time.monotonic() - t0
 print(f'Wrote {n} csv lines in {elapsed} seconds')
 
 k = 64
-with pytdms.TdmsWriter('/sd/contiguous.tdms') as f:
-    i_chan = pytdms.Channel("Simulated","Sample #", pytdms.DataType.I32)
-    t_chan = pytdms.Channel("Simulated","Seconds", pytdms.DataType.FLOAT32)
-    t0 = time.monotonic()
-    for i in range(n//k):
-        data = [(i, time.monotonic()-t0) for i in range(k)]
-        indexes, times = zip(*data)
-        f.write_segment([
-            (i_chan, indexes),
-            (t_chan, times)
-            ])
-print(f'Wrote {n} contiguous TDMS samples in {time.monotonic()-t0} seconds')
 
-with pytdms.TdmsWriter('/sd/interleaved.tdms') as f:
-    i_chan = pytdms.Channel("Simulated","Sample #", pytdms.DataType.I32)
-    t_chan = pytdms.Channel("Simulated","Seconds", pytdms.DataType.FLOAT32)
+with open('/sd/interleaved.tdms', "wb") as f:
+    # Fixed channels at initialization
+    i_chan = Channel("Simulated", "Sample #", DataType.I32)
+    t_chan = Channel("Simulated", "Seconds", DataType.FLOAT32)
+    gen = TdmsSegmentGenerator([i_chan, t_chan], file_properties={})
     t0 = time.monotonic()
-    for batch in range(n//k):
-        # Create interleaved scan order: [ch0_s0][ch1_s0][ch0_s1][ch1_s1]...
+    header = gen.build_metadata(n)
+    print(f'Header is {len(header)} bytes')
+    f.write(header)
+    for batch_idx in range(n // k):
+        # Generate header (lead-in + metadata)
         scans = b''.join([struct.pack("<if", sample, time.monotonic()-t0) for sample in range(k)])
-        f.write_interleaved_segment([i_chan, t_chan], scans)
+        f.write(scans)
 print(f'Wrote {n} interleaved TDMS samples in {time.monotonic()-t0} seconds')
 
 with open('/sd/binary.blob', 'wb') as f:
