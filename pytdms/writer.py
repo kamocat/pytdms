@@ -22,7 +22,6 @@ from pytdms.constants import (
     TOC_DEFAULT_INTERLEAVED,
 )
 from pytdms.encoder import (
-    byteswap_scans,
     pack_lead_in,
     pack_no_data_index,
     pack_object_meta,
@@ -317,24 +316,27 @@ class TdmsWriter:
         raw_scans : bytes | bytearray | memoryview
             N complete scans.  Length must be a multiple of the total scan size.
         endian : ``"little"`` | ``"big"``
-            Byte order of *raw_scans*.  Use ``"big"`` when data arrives from a
-            big-endian source (e.g. network packets, some IMU/ADC chips); fields
-            are swapped field-by-field before writing.
+            DEPRECATED. Only ``"little"`` is supported. Big-endian data must be
+            converted externally before writing.
         file_properties : dict | None
             File-level properties (written only in the first segment).
 
         Raises
         ------
         ValueError
-            If *endian* is not ``"little"`` or ``"big"``, the buffer is not a
+            If *endian* is not ``"little"``, the buffer is not a
             multiple of the scan size, or a channel has an unsupported type.
         """
-        if endian not in ("little", "big"):
-            raise ValueError(f"endian must be 'little' or 'big', got {endian!r}")
+        if endian != "little":
+            raise ValueError(
+                f"endian='{endian}' is no longer supported. "
+                "Data must be in little-endian format. "
+                "Convert big-endian data externally before writing."
+            )
         if not channels:
             return
         num_scans = validate_interleaved_raw(channels, raw_scans)
-        raw_bytes = byteswap_scans(channels, raw_scans) if endian == "big" else bytes(raw_scans)
+        raw_bytes = bytes(raw_scans)
         new_sigs = [_channel_signature(ch, num_scans) for ch in channels]
         if self._seekable and self._current_sigs is not None and new_sigs == self._current_sigs:
             self._append_raw(raw_bytes)

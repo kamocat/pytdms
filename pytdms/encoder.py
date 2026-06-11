@@ -212,63 +212,6 @@ def pack_object_meta(path, raw_index_bytes, properties):
 # ---------------------------------------------------------------------------
 
 
-def interleave_raw_data(packed):
-    """Reorder contiguous per-channel raw bytes into interleaved TDMS wire format.
-
-    Contiguous layout (default):
-        ``[ch0_s0][ch0_s1]...[ch1_s0][ch1_s1]...``
-
-    Interleaved layout (kTocInterleavedData):
-        ``[ch0_s0][ch1_s0]...[ch0_s1][ch1_s1]...``
-
-    Parameters
-    ----------
-    packed : list of ``(channel, raw_bytes, num_values, extra)``
-        The same list used internally by ``TdmsWriter``.  All channels must
-        have the same ``num_values`` and must be fixed-width (no STRING).
-
-    Returns
-    -------
-    bytes
-        Interleaved raw data ready to write directly to the file.
-
-    Raises
-    ------
-    ValueError
-        If channels have differing sample counts or a STRING channel is present.
-    """
-    if not packed:
-        return b""
-    if len(packed) == 1:
-        return packed[0][1]  # single channel — no reordering needed
-
-    n_samples = packed[0][2]
-    sizes = []
-    for ch, raw_bytes, num_values, _ in packed:
-        if ch.data_type == DataType.STRING:
-            raise ValueError("Interleaved mode does not support STRING channels")
-        if num_values != n_samples:
-            raise ValueError(
-                "Interleaved mode requires all channels to have the same number of "
-                f"values per chunk (got {num_values} vs {n_samples})"
-            )
-        info = _TYPE_INFO.get(ch.data_type)
-        if info is None:
-            raise ValueError(f"Unsupported data type for interleaving: {ch.data_type}")
-        sizes.append(info[1])  # byte width per sample
-
-    scan_size = sum(sizes)
-    out = bytearray(scan_size * n_samples)
-    for s in range(n_samples):
-        dst = s * scan_size
-        for c, (_, raw_bytes, _, _) in enumerate(packed):
-            size = sizes[c]
-            src = s * size
-            out[dst : dst + size] = raw_bytes[src : src + size]
-            dst += size
-    return bytes(out)
-
-
 def scan_size(channels):
     """Return the total byte width of one complete scan across *channels*.
 
