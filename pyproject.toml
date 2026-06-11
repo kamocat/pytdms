@@ -3,9 +3,9 @@ requires = ["hatchling"]
 build-backend = "hatchling.build"
 
 [project]
-name = "pytdms"
+name = "tdms"
 version = "0.1.0"
-description = "Pure-Python streaming TDMS writer — CircuitPython 10.x compatible"
+description = "Minimal TDMS segment generator — fixed interleaved layout, CircuitPython 10.x compatible"
 requires-python = ">=3.8"
 license = { text = "MIT" }
 dependencies = []
@@ -28,7 +28,7 @@ testpaths = ["tests"]
 addopts = "-v"
 
 [tool.hatch.build.targets.wheel]
-packages = ["pytdms"]
+packages = ["tdms"]
 
 [tool.ruff]
 line-length = 100
@@ -47,9 +47,9 @@ ignore = [
 ]
 
 [tool.ruff.lint.isort]
-known-first-party = ["pytdms"]
+known-first-party = ["tdms"]
 
 [tool.ruff.format]
 quote-style = "double"
 indent-style = "space"
-exclude = ["pytdms/constants.py"]  # hand-aligned assignments — formatter would strip them
+exclude = ["tdms/constants.py"]  # hand-aligned assignments — formatter would strip them

@@ -4,8 +4,8 @@ import sdcardio
 import storage
 import time
 import struct
-from pytdms import Channel, DataType
-from pytdms.generator import TdmsSegmentGenerator
+from tdms import Channel, DataType
+from tdms.generator import TdmsSegmentGenerator
 
 _spi = busio.SPI(MISO=board.GP16, clock=board.GP18, MOSI=board.GP19)
 _sd = sdcardio.SDCard(_spi, board.GP17)  # change SD_CS to match your board

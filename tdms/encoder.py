@@ -1,5 +1,5 @@
 """
-pytdms.encoder
+tdms.encoder
 ==============
 Pure-function binary serialisation for TDMS segments.
 
@@ -10,7 +10,7 @@ beyond ``struct``, so it is fully compatible with CircuitPython 10.x.
 
 import struct
 
-from pytdms.constants import (
+from tdms.constants import (
     _NO_DATA_INDEX,
     _SAME_INDEX,
     _TYPE_INFO,

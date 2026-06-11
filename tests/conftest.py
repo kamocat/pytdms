@@ -1,4 +1,4 @@
-"""Shared fixtures and helpers for the pytdms test suite."""
+"""Shared fixtures and helpers for the tdms test suite."""
 
 import io
 
@@ -52,8 +52,5 @@ class SeekableBytesIO(io.BytesIO):
 
 def make_mem_writer():
     """Return a (TdmsWriter, SeekableBytesIO) pair writing to memory."""
-    from pytdms.writer import TdmsWriter
-
-    buf = SeekableBytesIO()
-    writer = TdmsWriter(buf)
-    return writer, buf
+    # Note: TdmsWriter has been removed; this function is deprecated
+    raise NotImplementedError("TdmsWriter no longer exists; use TdmsSegmentGenerator instead")

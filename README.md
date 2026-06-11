@@ -1,124 +1,88 @@
-# pytdms
+# tdms
 
-Pure-Python streaming TDMS writer. CircuitPython 10.x compatible, zero dependencies for the core writer. Supports async I/O via `aiofile` on CPython.
+Minimal TDMS segment generator for fixed interleaved data. CircuitPython 10.x compatible, zero dependencies.
 
 ## Features
 
-- **Streaming** — write data chunk by chunk; the file is always valid on disk after every `write_segment` call
-- **Same-segment append optimisation** — when the same channel layout is written repeatedly, only raw bytes are appended and the lead-in offset is patched in place (one 8-byte seek). No metadata rewrite per chunk
-- **Dual input modes** — pass Python lists/tuples (the library packs them) or raw `bytes`/`bytearray`/`memoryview` (zero-copy, direct from DMA buffers)
+- **Minimal API** — Single method: `build_metadata(num_scans)` returns lead-in + metadata bytes
+- **Fixed channels** — Channel layout defined at initialization; no dynamic changes
+- **Interleaved only** — Data layout: `[ch0_sample][ch1_sample]...[chN_sample]` per scan
 - **Full data-type support** — I8/16/32/64, U8/16/32/64, FLOAT32, FLOAT64, BOOLEAN, STRING, TIMESTAMP
-- **CircuitPython 10.x compatible** — no `enum`, no `asyncio`, no `dataclasses`, no walrus operator; only `struct` + `bytearray`
-- **Async writer** — `AsyncTdmsWriter` uses `aiofile` for non-blocking I/O on CPython 3.8+
-- **Verified against nptdms** — 144 tests including full round-trip checks for every data type
+- **CircuitPython 10.x compatible** — no `enum`, no `asyncio`, no `dataclasses`; only `struct` + `bytearray`
+- **TDMS format verified** — 66 tests; 3 tests confirm output readable by nptdms library
 
 ## Installation
 
 ```bash
-# Core writer only
-pip install pytdms
-
-# With async support
-pip install "pytdms[async]"
+pip install tdms
 
 # With test dependencies
-pip install "pytdms[test]"
+pip install "tdms[test]"
 ```
 
-For CircuitPython: copy the `pytdms/` folder to your `CIRCUITPY/lib/` directory.
+For CircuitPython: copy the `tdms/` folder to your `CIRCUITPY/lib/` directory.
 
 ## Quick start
 
 ```python
-from pytdms import TdmsWriter, Channel, DataType
-
-ch_temp  = Channel("Sensors", "Temperature", DataType.FLOAT32)
-ch_count = Channel("Sensors", "SampleCount", DataType.U32)
-
-# Optional channel properties
-ch_temp.add_property("unit_string", DataType.STRING, "°C")
-ch_temp.add_property("wf_increment", DataType.FLOAT64, 0.001)
-
-with TdmsWriter("output.tdms") as writer:
-    # Pass Python lists — the library handles packing
-    writer.write_segment([
-        (ch_temp,  [23.1, 23.4, 23.2]),
-        (ch_count, [0, 1, 2]),
-    ])
-
-    # Repeated calls with the same layout share one TDMS segment
-    # (metadata written only once; subsequent calls are raw-data appends)
-    for i in range(100):
-        writer.write_segment([
-            (ch_temp,  [23.0 + i * 0.01] * 3),
-            (ch_count, [i * 3, i * 3 + 1, i * 3 + 2]),
-        ])
-```
-
-## Pre-packed binary data
-
-When data arrives as a raw buffer (SPI/UART DMA, `struct.pack`, `array.array`), pass it directly:
-
-```python
+from tdms import Channel, DataType, TdmsSegmentGenerator
 import struct
-from pytdms import TdmsWriter, Channel, DataType
 
-# struct format characters (all little-endian '<'):
-#   I8/U8   -> b/B (1 byte)    I16/U16 -> h/H (2 bytes)
-#   I32/U32 -> i/I (4 bytes)   I64/U64 -> q/Q (8 bytes)
-#   FLOAT32 -> f (4 bytes)     FLOAT64 -> d (8 bytes)
-#   BOOLEAN -> B (1 byte, 0=False 1=True)
-#   TIMESTAMP -> qQ per sample (16 bytes: i64 NI-epoch-seconds + u64 fractions)
+# Define fixed channel layout (immutable after init)
+ch_id = Channel("Sensors", "Sample#", DataType.I32)
+ch_time = Channel("Sensors", "Seconds", DataType.FLOAT32)
 
-ch = Channel("ADC", "Raw", DataType.I16)
-raw_buf = struct.pack("<hhhh", 100, 200, -300, 400)  # 4 samples from DMA
+gen = TdmsSegmentGenerator([ch_id, ch_time])
 
-with TdmsWriter("adc.tdms") as writer:
-    writer.write_segment([(ch, raw_buf)])
+# Generate header: lead-in + metadata
+header = gen.build_metadata(num_scans=64)
 
-    # memoryview works too — zero copy
-    large_buf = bytearray(1024)
-    writer.write_segment([(ch, memoryview(large_buf)[:64])])
+# You handle all file I/O
+with open("data.tdms", "wb") as f:
+    f.write(header)
+    
+    # Write 64 interleaved scans: [id][time][id][time]...[id][time]
+    for i in range(64):
+        f.write(struct.pack("<if", i, float(i) * 0.1))
 ```
 
-See [examples/prepacked_data.py](examples/prepacked_data.py) for a complete walkthrough.
+## Interleaved data layout
 
-## Async writer
+Data is always interleaved per scan:
 
-```python
-import asyncio
-from pytdms.async_writer import AsyncTdmsWriter
-from pytdms import Channel, DataType
+```
+[ch0_scan0][ch1_scan0][ch2_scan0]  [ch0_scan1][ch1_scan1][ch2_scan1]  ...
+```
 
-ch = Channel("Sensors", "Voltage", DataType.FLOAT64)
-
-async def main():
-    async with AsyncTdmsWriter("output.tdms") as writer:
-        await writer.write_segment([(ch, [1.0, 2.0, 3.0])])
-        await writer.write_segment([(ch, [4.0, 5.0, 6.0])])
-
-asyncio.run(main())
+For channels: I32 (4 bytes), F32 (4 bytes), F64 (8 bytes):
+- Scan size: 16 bytes
+- 64 scans: 1024 bytes raw data
+- Header size: ~100 bytes (depends on group/channel names)
 ```
 
 ## File properties
 
+Optional file-level properties are passed at initialization:
+
 ```python
-writer.write_segment(
-    [(ch, data)],
-    file_properties={
-        "author":      (DataType.STRING, "Alice"),
-        "description": (DataType.STRING, "Bench test #7"),
-        "version":     (DataType.I32,    3),
-    }
-)
+from tdms import Channel, DataType, TdmsSegmentGenerator
+
+ch = Channel("Data", "Value", DataType.F64)
+props = {
+    "Author": (DataType.STRING, "Alice"),
+    "Description": (DataType.STRING, "Bench test"),
+}
+
+gen = TdmsSegmentGenerator([ch], file_properties=props)
+header = gen.build_metadata(100)
 ```
 
 ## TDMS object hierarchy
 
 | Object | Path format | Created by |
 |--------|-------------|------------|
-| File   | `/`         | Automatically on first `write_segment` |
-| Group  | `/'name'`   | Automatically when a new group appears |
+| File   | `/`         | Automatically in lead-in/metadata |
+| Group  | `/'name'`   | Automatically when channel added |
 | Channel| `/'group'/'channel'` | User-defined via `Channel(...)` |
 
 ## Data types
@@ -144,36 +108,34 @@ Timestamps use the NI epoch (1904-01-01 00:00:00 UTC). Offset from Unix epoch: `
 ## Running the tests
 
 ```bash
-pip install "pytdms[test]"
+pip install "tdms[test]"
 pytest
 ```
+
+Expected output: **66 passed** — 55 encoder + 8 generator + 3 nptdms validation
 
 ## Project layout
 
 ```
-pytdms/
-├── pytdms/
-│   ├── __init__.py        # Public exports
+tdms/
+├── tdms/
+│   ├── __init__.py        # Public exports: Channel, DataType, TdmsSegmentGenerator
 │   ├── constants.py       # DataType, ToC flags, VERSION, _TYPE_INFO
-│   ├── encoder.py         # All binary serialisation — zero I/O
+│   ├── encoder.py         # Low-level binary packing functions
 │   ├── channel.py         # Channel class, path escaping
-│   ├── writer.py          # TdmsWriter (sync, seek-optimised)
-│   └── async_writer.py    # AsyncTdmsWriter (aiofile, CPython only)
+│   └── generator.py       # TdmsSegmentGenerator (metadata generation)
 ├── tests/
 │   ├── conftest.py
-│   ├── test_encoder.py
-│   ├── test_writer.py
-│   ├── test_nptdms_compat.py
-│   └── test_async_writer.py
-├── examples/
-│   └── prepacked_data.py
+│   ├── test_encoder.py    # 55 encoder tests
+│   └── test_generator.py  # 8 generator + 3 nptdms tests
 └── pyproject.toml
 ```
 
-## Limitations
+## Limitations & Design
 
-- Little-endian output only (`kTocBigEndian` is not implemented)
-- DAQmx raw data (format-changing scalers) is not supported
-- Extended float (`tdsTypeExtendedFloat`) is not supported
-- No `.tdms_index` sidecar file is written (NI tools auto-generate it on first open)
-- Interleaved data layout (`kTocInterleavedData`) is not written (contiguous layout is always used; both are valid per spec)
+- **Fixed channels** — Layout determined at init; no changes allowed
+- **Interleaved only** — Always uses interleaved data layout (contiguous not supported)
+- **No I/O** — Library generates metadata only; caller handles file writing
+- Little-endian output only (`kTocBigEndian` not implemented)
+- Extended float and DAQmx raw data not supported
+- No `.tdms_index` sidecar files generated (nptdms auto-generates on first open)

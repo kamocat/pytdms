@@ -1,5 +1,5 @@
 """
-Unit tests for pytdms.encoder — pure binary serialisation functions.
+Unit tests for tdms.encoder - pure binary serialisation functions.
 
 These tests have no I/O and do not require nptdms.
 """
@@ -8,8 +8,8 @@ import struct
 
 import pytest
 
-from pytdms.constants import LEAD_IN_SIZE, TAG, VERSION, DataType
-from pytdms.encoder import (
+from tdms.constants import LEAD_IN_SIZE, TAG, VERSION, DataType
+from tdms.encoder import (
     encode_string,
     encode_value,
     pack_lead_in,

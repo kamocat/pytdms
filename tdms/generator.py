@@ -1,5 +1,5 @@
 """
-pytdms.generator
+tdms.generator
 ================
 Minimal TDMS segment header generation (I/O-free, interleaved data only).
 
@@ -12,9 +12,9 @@ no ``pathlib``.
 
 import struct
 
-from pytdms.channel import file_object_path, group_path
-from pytdms.constants import TOC_DEFAULT_INTERLEAVED, _TYPE_INFO
-from pytdms.encoder import (
+from tdms.channel import file_object_path, group_path
+from tdms.constants import TOC_DEFAULT_INTERLEAVED, _TYPE_INFO
+from tdms.encoder import (
     pack_lead_in,
     pack_no_data_index,
     pack_object_meta,
@@ -42,8 +42,8 @@ class TdmsSegmentGenerator:
     ::
 
         import struct
-        from pytdms import Channel, DataType
-        from pytdms.generator import TdmsSegmentGenerator
+        from tdms import Channel, DataType
+        from tdms.generator import TdmsSegmentGenerator
 
         ch_id = Channel("Sensors", "Sample #", DataType.I32)
         ch_time = Channel("Sensors", "Seconds", DataType.FLOAT32)
@@ -98,7 +98,7 @@ class TdmsSegmentGenerator:
         raw_data_size = num_scans * self._scan_size
         next_segment_offset = len(metadata) + raw_data_size
         lead_in = pack_lead_in(TOC_DEFAULT_INTERLEAVED, next_segment_offset, len(metadata))
-        return lead_in + metadata
+        return bytes(lead_in + metadata)
 
     def _build_segment_metadata(self, num_scans):
         """Build segment metadata for the fixed channel layout.

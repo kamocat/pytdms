@@ -1,12 +1,12 @@
 """
-pytdms.channel
+tdms.channel
 ==============
 Channel and path helpers.
 
 CircuitPython 10.x compatible — no ``dataclasses``, no ``typing``.
 """
 
-from pytdms.constants import _RAW_DATA_TYPES
+from tdms.constants import _RAW_DATA_TYPES
 
 # ---------------------------------------------------------------------------
 # Path helpers
