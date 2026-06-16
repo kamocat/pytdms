@@ -15,6 +15,7 @@ from tdms.constants import (
     _SAME_INDEX,
     _TYPE_INFO,
     LEAD_IN_SIZE,
+    MASK_64BIT,
     RAW_INDEX_PAYLOAD_FIXED,
     RAW_INDEX_PAYLOAD_STRING,
     TAG,
@@ -27,14 +28,22 @@ from tdms.constants import (
 # ---------------------------------------------------------------------------
 
 
-def encode_string(s):
+def encode_string(s, big_endian=False):
     """Encode a Python string to TDMS wire format: ``u32_len + utf8_bytes``.
 
     Returns a ``bytearray``.  The length field counts UTF-8 bytes, not characters.
+    
+    Parameters
+    ----------
+    s : str
+        String to encode.
+    big_endian : bool
+        If True, use big-endian format for the length field. Default False (little-endian).
     """
     utf8 = s.encode("utf-8")
     out = bytearray(4 + len(utf8))
-    struct.pack_into("<I", out, 0, len(utf8))
+    fmt = ">I" if big_endian else "<I"
+    struct.pack_into(fmt, out, 0, len(utf8))
     out[4:] = utf8
     return out
 
@@ -44,31 +53,42 @@ def encode_string(s):
 # ---------------------------------------------------------------------------
 
 
-def encode_value(data_type, value):
+def encode_value(data_type, value, big_endian=False):
     """Encode a single scalar *value* of *data_type* to ``bytes``.
 
     Supported types: all entries in ``_TYPE_INFO`` plus special handling for
     STRING (returns ``encode_string``) and TIMESTAMP (expects ``(i64, u64)``
     tuple of NI-epoch seconds + sub-second fractions).
 
+    Parameters
+    ----------
+    data_type : int
+        Data type identifier from DataType class.
+    value : scalar or tuple
+        Value to encode.
+    big_endian : bool
+        If True, use big-endian format. Default False (little-endian).
+
     Raises ``ValueError`` for unsupported types or malformed values.
     """
     if data_type == DataType.STRING:
-        return bytes(encode_string(value))
+        return bytes(encode_string(value, big_endian=big_endian))
+
+    fmt_prefix = ">" if big_endian else "<"
 
     if data_type == DataType.TIMESTAMP:
         # value must be (i64_seconds_since_ni_epoch, u64_fractions)
         sec, frac = value
-        return struct.pack("<qQ", sec, frac)
+        return struct.pack(fmt_prefix + "qQ", sec, frac)
 
     if data_type == DataType.BOOLEAN:
-        return struct.pack("<B", 1 if value else 0)
+        return struct.pack(fmt_prefix + "B", 1 if value else 0)
 
     info = _TYPE_INFO.get(data_type)
     if info is None or info[0] is None:
         raise ValueError(f"Unsupported data type: {data_type}")
     fmt_char, _ = info
-    return struct.pack("<" + fmt_char, value)
+    return struct.pack(fmt_prefix + fmt_char, value)
 
 
 # ---------------------------------------------------------------------------
@@ -76,21 +96,29 @@ def encode_value(data_type, value):
 # ---------------------------------------------------------------------------
 
 
-def pack_lead_in(toc, next_seg_offset, raw_data_offset):
+def pack_lead_in(toc, next_seg_offset, raw_data_offset, big_endian=False):
     """Build the 28-byte TDMS segment lead-in.
 
     Parameters
     ----------
     toc:              int  — ToC bitmask (use constants from ``ToC``)
     next_seg_offset:  int  — bytes from end-of-lead-in to end of this segment
+                             (use -1 for unknown/append mode)
     raw_data_offset:  int  — bytes from end-of-lead-in to start of raw data
                              (equals total meta-data length)
+    big_endian:       bool — If True, use big-endian format. Default False (little-endian).
 
     Returns a ``bytearray`` of exactly 28 bytes.
     """
     out = bytearray(LEAD_IN_SIZE)
     out[0:4] = TAG
-    struct.pack_into("<IIQQ", out, 4, toc, VERSION, next_seg_offset, raw_data_offset)
+    
+    # Mask 64-bit values to handle -1 (becomes 0xFFFFFFFFFFFFFFFF)
+    next_seg_offset = next_seg_offset & MASK_64BIT
+    raw_data_offset = raw_data_offset & MASK_64BIT
+    
+    fmt = ">IIQQ" if big_endian else "<IIQQ"
+    struct.pack_into(fmt, out, 4, toc, VERSION, next_seg_offset, raw_data_offset)
     return out
 
 
@@ -124,7 +152,7 @@ def pack_same_index():
     return _SAME_INDEX
 
 
-def pack_raw_index(data_type, num_values, total_string_bytes=None):
+def pack_raw_index(data_type, num_values, total_string_bytes=None, big_endian=False):
     """Build a full raw-data index entry for a channel with new index info.
 
     For fixed-width types the index is 20 bytes:
@@ -133,21 +161,34 @@ def pack_raw_index(data_type, num_values, total_string_bytes=None):
     For STRING the index is 28 bytes:
         u32 payload_len=20  u32 data_type  u32 dim=1  u64 num_values  u64 total_bytes
 
-    ``total_string_bytes`` must be provided for STRING channels.
+    Parameters
+    ----------
+    data_type : int
+        Data type identifier.
+    num_values : int
+        Number of values in the raw data.
+    total_string_bytes : int | None
+        Required for STRING channels; total byte size of all strings.
+    big_endian : bool
+        If True, use big-endian format. Default False (little-endian).
+    
+    Raises ``ValueError`` if total_string_bytes is not provided for STRING channels.
     """
+    fmt = ">IIIQQ" if big_endian else "<IIIQQ"
     if data_type == DataType.STRING:
         if total_string_bytes is None:
             raise ValueError("total_string_bytes required for STRING channels")
         return struct.pack(
-            "<IIIQQ",
+            fmt,
             RAW_INDEX_PAYLOAD_STRING,  # payload length (20)
             data_type,
             1,  # array dimension (always 1)
             num_values,
             total_string_bytes,
         )
+    fmt = ">IIIQ" if big_endian else "<IIIQ"
     return struct.pack(
-        "<IIIQ",
+        fmt,
         RAW_INDEX_PAYLOAD_FIXED,  # payload length (12)
         data_type,
         1,
@@ -160,16 +201,28 @@ def pack_raw_index(data_type, num_values, total_string_bytes=None):
 # ---------------------------------------------------------------------------
 
 
-def pack_property(name, data_type, value):
+def pack_property(name, data_type, value, big_endian=False):
     """Encode a single TDMS property.
 
     Wire format:  [encoded_name][u32 data_type][encoded_value]
 
+    Parameters
+    ----------
+    name : str
+        Property name.
+    data_type : int
+        Data type of the property value.
+    value : scalar or tuple
+        Property value.
+    big_endian : bool
+        If True, use big-endian format. Default False (little-endian).
+
     Returns ``bytes``.
     """
-    name_bytes = encode_string(name)
-    type_bytes = struct.pack("<I", data_type)
-    value_bytes = encode_value(data_type, value)
+    name_bytes = encode_string(name, big_endian=big_endian)
+    fmt = ">I" if big_endian else "<I"
+    type_bytes = struct.pack(fmt, data_type)
+    value_bytes = encode_value(data_type, value, big_endian=big_endian)
     return bytes(name_bytes) + type_bytes + value_bytes
 
 
@@ -178,7 +231,7 @@ def pack_property(name, data_type, value):
 # ---------------------------------------------------------------------------
 
 
-def pack_object_meta(path, raw_index_bytes, properties):
+def pack_object_meta(path, raw_index_bytes, properties, big_endian=False):
     """Encode a single TDMS object's meta-data block.
 
     Parameters
@@ -188,21 +241,23 @@ def pack_object_meta(path, raw_index_bytes, properties):
                               pack_same_index()
     properties:       iterable of ``(name_str, data_type_int, value)`` triples,
                       or ``None``/empty for no properties.
+    big_endian:       bool — If True, use big-endian format. Default False (little-endian).
 
     Returns ``bytearray``.
     """
-    path_bytes = encode_string(path)
+    path_bytes = encode_string(path, big_endian=big_endian)
     prop_list = list(properties) if properties else []
 
     # Encode properties first so we know the count
     encoded_props = bytearray()
     for prop_name, prop_type, prop_val in prop_list:
-        encoded_props += pack_property(prop_name, prop_type, prop_val)
+        encoded_props += pack_property(prop_name, prop_type, prop_val, big_endian=big_endian)
 
+    fmt = ">I" if big_endian else "<I"
     out = bytearray()
     out += path_bytes
     out += raw_index_bytes
-    out += struct.pack("<I", len(prop_list))
+    out += struct.pack(fmt, len(prop_list))
     out += encoded_props
     return out
 

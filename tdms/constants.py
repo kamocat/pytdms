@@ -9,7 +9,7 @@ VERSION = 4713        # TDMS 2.0
 LEAD_IN_SIZE = 28     # bytes: 4 tag + 4 toc + 4 version + 8 next_seg_offset + 8 raw_data_offset
 
 # Sentinel stored when next_seg_offset is unknown (e.g. mid-write crash)
-OFFSET_UNKNOWN = 0xFFFFFFFFFFFFFFFF
+MASK_64BIT = 0xFFFFFFFFFFFFFFFF
 
 # ---------------------------------------------------------------------------
 # Table of Contents (ToC) bitmask flags
@@ -25,10 +25,6 @@ class ToC:
 TOC_DEFAULT      = ToC.META | ToC.NEW_OBJ_LIST | ToC.RAW   # 0x0E
 # ToC for a segment whose meta hasn't changed — still has raw, still has meta for index info
 TOC_CONTINUATION = ToC.META | ToC.RAW                       # 0x0A  (no NEW_OBJ_LIST)
-
-# Interleaved variants — same as above but with ToC.INTERLEAVED set
-TOC_DEFAULT_INTERLEAVED      = ToC.META | ToC.NEW_OBJ_LIST | ToC.RAW | ToC.INTERLEAVED  # 0x2E
-TOC_CONTINUATION_INTERLEAVED = ToC.META | ToC.RAW | ToC.INTERLEAVED                     # 0x2A
 
 # ---------------------------------------------------------------------------
 # Data type identifiers  (tdsDataType enum)
