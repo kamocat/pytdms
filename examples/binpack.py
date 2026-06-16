@@ -15,22 +15,18 @@ except ImportError:
         return (time.monotonic() - start)/number
     import ulab.numpy as np
 
-n = 100
+n = 128
 
-def join_comprehension():
-    # List comprehension
-    return b''.join([struct.pack("<if", i, i*i) for i in range(n)])
+### 1D methods ###
+data = list(range(n))
 
 def join_iterator():
     # Iterator
     a = (struct.pack("<if", i, i*i) for i in range(n))
     return b''.join(a)
 
-def struct_int32():
-    return struct.pack(f'<{n}i', *range(n))
-
-def struct_mixed():
-    return struct.pack(f'<{n}i{n}f', *[x for i in range(n) for x in (i, i*i)])
+def struct_int32(fmt=f'<{n}i'): #Default argument pre-computes for format string
+    return struct.pack(fmt, *range(n))
     
 def array_int8():
     return array.array('b', range(n))
@@ -54,65 +50,80 @@ def array_list():
     a = list(range(n))
     return array.array('l', a)
 
+def np_float():
+    return np.array(range(n)).tobytes()
+
+def np_int():
+    return np.array(range(n), dtype=np.int16).tobytes()
+
+### 2D methods ###
+data = list((i, i*i) for i in range(n))
+
+#contiguous: n ints followed by n floats
+def two_array():
+    a,b = zip(*data)
+    return array.array('i', a), array.array('f', b)
+
+#Contiguous: n ints followed by n floats
+def struct_mixed(fmt=f'<{n}i{n}f'): #Default argument pre-computes for format string
+    a,b = zip(*data)
+    return struct.pack(fmt, *(a+b))
+
+#Interleaved ints and floats
+def join_comprehension():
+    # List comprehension
+    return b''.join([struct.pack("<if", i, i*i) for i in range(n)])
+
+#Interleaved ints and floats
 def bytearray_loop():
     a = bytearray()
     for i in range(n):
         a.extend(struct.pack("<if", i,i*i))
     return a
 
-def np_float():
-    return np.array(range(n)).tobytes()
+#Interleaved ints and floats
+def bytearray_prealloc():
+    a = bytearray(n * 8)  # Preallocate for 100 int-float pairs
+    for i in range(n):
+        struct.pack_into("<if", a, i*8, i, i*i)
+    return a
 
 def np_2d():
-    return np.array([[i,i*i] for i in range(n)]).tobytes()
+    return np.array(data).tobytes()
 
-if __name__ == '__main__':
+#What order are the numpy arrays stored in?
+def determine_byte_order():
+    a = np.array([[1,2],[3,4]]).tobytes() #ulab.numpy does not support doubles
+    b = struct.unpack('<4f', a)
+    if b[3] > b[2]:
+        print("Numpy arrays are stored in contiguous order (row-major)")
+    else:
+        print("Numpy arrays are stored in interleaved order (column-major)")
+
+def main():
     functions = [
-        ('array.array int8', array_int8),
-        ('array.array int16', array_int16),
+        #('array.array int8', array_int8),
+        #('array.array int16', array_int16),
         ('array.array int32', array_int32),
-        ('array.array int64', array_int64),
+        #('array.array int64', array_int64),
         ('array.array float', array_float),
         ('array.array double', array_double),
         ('array.array from list', array_list),
         ('numpy.array float', np_float),
-        ('numpy.array 2dims', np_2d),
+        ('numpy.array int', np_int),
         ('struct.pack int32', struct_int32),
+        ('two arrays', two_array),
+        ('numpy.array 2dims', np_2d),
         ('struct.pack mixed', struct_mixed),
         ('b"".join comprehension', join_comprehension),
         ('b"".join iterator', join_iterator),
         ('bytearray.extend loop', bytearray_loop),
+        ('bytearray preallocate', bytearray_prealloc),
     ]
     print("Benchmark\t\tTime (ms)")
     for name, func in functions:
         time = timeit(func, number=1000) * 1000
         print(f"{name}\t{time:.4f}")
+    determine_byte_order()
 
-### Benchmark Results
-
-Time to pack 100 numbers into bytes, in milliseconds (lower is better).
-Results may vary based on the specific hardware and Python implementation used.
-
-```
-1D Benchmarks
-Benchmark               | RP2350 | RP2040 | Feather M0 | ESP32-S3
-------------------------|--------|--------|------------|----------
-array.array int8        | 0.1640 | 0.3229 |   1.4370   | 0.1380
-array.array int16       | 0.1960 | 0.3698 |   1.6810   | 0.1540
-array.array int32       | 0.1960 | 0.3679 |   1.6820   | 0.1580
-array.array int64       | 0.2440 | 0.4632 |   2.1710   | 0.1870
-array.array float       | 0.1630 | 0.3431 |   1.4540   | 0.1270
-array.array double      | 0.2200 | 0.4590 |   2.0460   | 0.1740
-array.array from list   | 0.3930 | 0.6970 |   3.1130   | 0.2770
-numpy.array float       | 0.1690 | 0.3682 |    N/A     | 0.1451
-struct.pack int32       | 0.3990 | 0.7070 |   3.2010   | 0.3420
-
-2D Benchmarks
-Benchmark               | RP2350 | RP2040 | Feather M0 | ESP32-S3
-------------------------|--------|--------|------------|----------
-numpy.array 2dims       | 1.3550 | 2.5629 |    N/A     | 1.0012
-struct.pack mixed       | 1.6360 | 2.9512 |  14.2220   | 1.2880
-b"".join comprehension  | 2.2530 | 3.6461 |  16.2620   | 1.5220
-b"".join iterator       | 2.4180 | 3.8978 |  17.5450   | 1.7810
-bytearray.extend loop   | 2.7180 | 4.9160 |  20.3790   | 1.7700
-```
+main()
