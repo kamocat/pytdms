@@ -4,12 +4,12 @@ Minimal TDMS segment generator for fixed interleaved data. CircuitPython 10.x co
 
 ## Features
 
-- **Minimal API** — Single method: `build_metadata(num_scans)` returns lead-in + metadata bytes
+- **Minimal API** — Single method: `build_metadata(num_scans, interleaved=True, big_endian=False)` returns lead-in + metadata bytes
 - **Fixed channels** — Channel layout defined at initialization; no dynamic changes
-- **Interleaved only** — Data layout: `[ch0_sample][ch1_sample]...[chN_sample]` per scan
+- **Flexible data layout** — Supports both interleaved and contiguous data layouts
 - **Full data-type support** — I8/16/32/64, U8/16/32/64, FLOAT32, FLOAT64, BOOLEAN, STRING, TIMESTAMP
 - **CircuitPython 10.x compatible** — no `enum`, no `asyncio`, no `dataclasses`; only `struct` + `bytearray`
-- **TDMS format verified** — 66 tests; 3 tests confirm output readable by nptdms library
+- **TDMS format verified** — 69 tests; 3 tests confirm output readable by nptdms library
 
 ## Installation
 
@@ -112,12 +112,12 @@ pip install "tdms[test]"
 pytest
 ```
 
-Expected output: **66 passed** — 55 encoder + 8 generator + 3 nptdms validation
+Expected output: **69 passed** — 55 encoder + 14 generator + 3 nptdms validation
 
 ## Project layout
 
 ```
-tdms/
+pytdms/
 ├── tdms/
 │   ├── __init__.py        # Public exports: Channel, DataType, TdmsSegmentGenerator
 │   ├── constants.py       # DataType, ToC flags, VERSION, _TYPE_INFO
@@ -127,15 +127,23 @@ tdms/
 ├── tests/
 │   ├── conftest.py
 │   ├── test_encoder.py    # 55 encoder tests
-│   └── test_generator.py  # 8 generator + 3 nptdms tests
-└── pyproject.toml
+│   └── test_generator.py  # 14 generator tests (including 3 nptdms validation)
+├── examples/
+│   ├── imu_logger.py      # A full example to show a real-world application of high-speed data logging
+│   ├── tdms_vs_csv.py     # Shows teh actual performance benefits of using TDMS
+│   ├── binpack.py         # Demonstrates the different methods for packign binary data and their relative performance
+│   └── benchmark_results.md
+├── utils/
+│   ├── inspect.py         # Read and display TDMS file structure via nptdms
+│   └── plot.py            # Visualize TDMS data with matplotlib
+├── LICENSE
+├── pyproject.toml
+└── README.md
 ```
 
 ## Limitations & Design
 
 - **Fixed channels** — Layout determined at init; no changes allowed
-- **Interleaved only** — Always uses interleaved data layout (contiguous not supported)
 - **No I/O** — Library generates metadata only; caller handles file writing
-- Little-endian output only (`kTocBigEndian` not implemented)
 - Extended float and DAQmx raw data not supported
 - No `.tdms_index` sidecar files generated (nptdms auto-generates on first open)

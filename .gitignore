@@ -39,3 +39,5 @@ Thumbs.db
 # Generated test/example output
 *.tdms
 *.tdms_index
+*.csv
+*.blob

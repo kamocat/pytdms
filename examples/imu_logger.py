@@ -1,4 +1,5 @@
 import array
+import os
 import struct
 import time
 
@@ -71,7 +72,8 @@ fname = dir + "{:04d}{:02d}{:02d}T{:02d}{:02d}{:02d}".format(
 ) + '-imu.tdms'
 
 with open(fname, 'wb') as f:
-    #TODO: Update file creation date
+    t = time.mktime(now)
+    os.utime(fname, (t, t))  # Set file timestamp to RTC time
     gen = mpu_tdms()
     k = 32  #Because we have interleaved data, this number probably doesn't matter
     header = gen.build_metadata(k, interleaved=True, big_endian=True)
@@ -79,9 +81,10 @@ with open(fname, 'wb') as f:
     f.write(header)
     d = 0
     mpu.read_whole_fifo()
-    while True:
+    end = time.monotonic() + 5 # Log for 5 seconds
+    while time.monotonic() < end:
         c = mpu.fifo_count
-        if c < 0:
+        if c > 0:
             d += c
             fifo_data = mpu.read_whole_fifo()
             if fifo_data:
@@ -90,4 +93,4 @@ with open(fname, 'wb') as f:
             f.flush()
             print(f'Wrote {d} samples')
             d = 0
-
+    print(f'Wrote {d} samples')

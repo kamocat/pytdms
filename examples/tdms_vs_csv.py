@@ -1,6 +1,7 @@
 import time
 import struct
 import array
+from os import path
 from tdms import Channel, DataType
 from tdms.generator import TdmsSegmentGenerator
 
@@ -15,11 +16,12 @@ try:
     storage.mount(storage.VfsFat(_sd), "/sd")
     dir = "/sd/"
 except ImportError:
-    dir = "./"
+    from pathlib import Path
+    dir = path.normpath(path.join(path.dirname(__file__),'..',"logs"))
 
 n = 10000
 
-with open(dir+'test.csv', 'w') as f:
+with open(path.join(dir, 'test.csv'), 'w') as f:
     f.write('Line, Time\n')
     t0 = time.monotonic()
     for i in range(n):
@@ -30,7 +32,7 @@ print(f'Wrote {n} csv lines in {elapsed} seconds')
 
 k = 64
 
-with open(dir+'contiguous.tdms', 'wb') as f:
+with open(path.join(dir, 'contiguous.tdms'), 'wb') as f:
     # Channels are decided at initialization
     i_chan = Channel("Simulated", "Sample #", DataType.I32)
     t_chan = Channel("Simulated", "Seconds", DataType.FLOAT32)
@@ -48,7 +50,7 @@ with open(dir+'contiguous.tdms', 'wb') as f:
         f.write(times)
 print(f'Wrote {n} contiguous TDMS samples in {time.monotonic()-t0} seconds')
 
-with open(dir+'interleaved.tdms', 'wb') as f:
+with open(path.join(dir, 'interleaved.tdms'), 'wb') as f:
     i_chan = Channel("Simulated", "Sample #", DataType.I32)
     t_chan = Channel("Simulated", "Seconds", DataType.FLOAT32)
     gen = TdmsSegmentGenerator([i_chan, t_chan], file_properties={})
@@ -62,7 +64,7 @@ with open(dir+'interleaved.tdms', 'wb') as f:
         f.write(scans)
 print(f'Wrote {n} interleaved TDMS samples in {time.monotonic()-t0} seconds')
 
-with open(dir+'big-endian.tdms', 'wb') as f:
+with open(path.join(dir, 'big-endian.tdms'), 'wb') as f:
     i_chan = Channel("Simulated", "Sample #", DataType.I32)
     t_chan = Channel("Simulated", "Seconds", DataType.FLOAT32)
     gen = TdmsSegmentGenerator([i_chan, t_chan], file_properties={})
@@ -78,7 +80,7 @@ with open(dir+'big-endian.tdms', 'wb') as f:
         f.write(scans)
 print(f'Wrote {n} big-endian TDMS samples in {time.monotonic()-t0} seconds')
 
-with open(dir+'binary.blob', 'wb') as f:
+with open(path.join(dir, 'binary.blob'), 'wb') as f:
     t0 = time.monotonic()
     for batch in range(n//k):
         # Create interleaved scan order: [ch0_s0][ch1_s0][ch0_s1][ch1_s1]...
@@ -87,7 +89,7 @@ with open(dir+'binary.blob', 'wb') as f:
 print(f'Wrote {n} binary samples in {time.monotonic()-t0} seconds') 
 
 s = f'{n},{time.monotonic()-t0}\n'
-with open(dir+'dummy.txt', 'w') as f:
+with open(path.join(dir, 'dummy.txt'), 'w') as f:
     t0 = time.monotonic()
     for i in range(n):
         f.write(s)
