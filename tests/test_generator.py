@@ -16,7 +16,7 @@ from tdms.constants import (
     LEAD_IN_SIZE,
     TAG,
     VERSION,
-    TOC_DEFAULT_INTERLEAVED,
+    ToC,
     DataType,
 )
 from tdms.generator import TdmsSegmentGenerator
@@ -45,7 +45,7 @@ class TestTdmsSegmentGenerator:
     def test_lead_in_structure(self):
         ch = Channel("Group", "Channel", DataType.I32)
         gen = TdmsSegmentGenerator([ch], file_properties={})
-        header = gen.build_metadata(10)
+        header = gen.build_metadata(10, interleaved=True)
         
         lead_in = header[:LEAD_IN_SIZE]
         assert lead_in[:4] == TAG
@@ -54,7 +54,9 @@ class TestTdmsSegmentGenerator:
         assert version == VERSION
         
         toc = struct.unpack("<I", lead_in[4:8])[0]
-        assert toc & TOC_DEFAULT_INTERLEAVED
+        # Interleaved: META | NEW_OBJ_LIST | RAW | INTERLEAVED
+        expected_toc = ToC.META | ToC.NEW_OBJ_LIST | ToC.RAW | ToC.INTERLEAVED
+        assert toc == expected_toc
 
     def test_next_segment_offset_calculation(self):
         ch_i32 = Channel("G", "I32", DataType.I32)
@@ -67,9 +69,8 @@ class TestTdmsSegmentGenerator:
         
         next_seg_offset = struct.unpack("<Q", lead_in[12:20])[0]
         meta_offset = struct.unpack("<Q", lead_in[20:28])[0]
-        raw_data_size = num_scans * gen._scan_size
-        
-        assert next_seg_offset == meta_offset + raw_data_size
+        # Generator uses -1 (0xFFFFFFFFFFFFFFFF) for append mode, not calculated offset
+        assert next_seg_offset == 0xFFFFFFFFFFFFFFFF
 
     def test_write_and_read_basic_file(self):
         ch_id = Channel("Sensors", "ID", DataType.I32)
@@ -78,18 +79,20 @@ class TestTdmsSegmentGenerator:
         
         with tempfile.NamedTemporaryFile(delete=False, suffix=".tdms") as f:
             tmpfile = f.name
+            f.close()  # Close before reading to avoid file locking issues
             try:
-                header = gen.build_metadata(64)
-                f.write(header)
-                scans = b"\x00" * (64 * 8)
-                f.write(scans)
-                f.flush()
+                with open(tmpfile, "wb") as fw:
+                    header = gen.build_metadata(64)
+                    fw.write(header)
+                    scans = b"\x00" * (64 * 8)
+                    fw.write(scans)
                 
                 with open(tmpfile, "rb") as rf:
                     read_tag = rf.read(4)
                     assert read_tag == TAG
             finally:
-                os.unlink(tmpfile)
+                if os.path.exists(tmpfile):
+                    os.unlink(tmpfile)
 
     def test_consistent_output(self):
         ch = Channel("G", "C", DataType.I32)
@@ -97,6 +100,52 @@ class TestTdmsSegmentGenerator:
         h1 = gen.build_metadata(50)
         h2 = gen.build_metadata(50)
         assert h1 == h2
+
+    def test_contiguous_data_layout(self):
+        """Test non-interleaved (contiguous) data layout."""
+        ch_i32 = Channel("G", "I32", DataType.I32)
+        ch_f32 = Channel("G", "F32", DataType.FLOAT32)
+        gen = TdmsSegmentGenerator([ch_i32, ch_f32], file_properties={})
+        
+        header = gen.build_metadata(64, interleaved=False)
+        lead_in = header[:LEAD_IN_SIZE]
+        
+        toc = struct.unpack("<I", lead_in[4:8])[0]
+        # Non-interleaved: META | NEW_OBJ_LIST | RAW (no INTERLEAVED flag)
+        expected_toc = ToC.META | ToC.NEW_OBJ_LIST | ToC.RAW
+        assert toc == expected_toc
+        assert not (toc & ToC.INTERLEAVED)
+
+    def test_big_endian_data(self):
+        """Test big-endian metadata and raw data."""
+        ch_i32 = Channel("G", "I32", DataType.I32)
+        ch_f32 = Channel("G", "F32", DataType.FLOAT32)
+        gen = TdmsSegmentGenerator([ch_i32, ch_f32], file_properties={})
+        
+        header = gen.build_metadata(64, interleaved=True, big_endian=True)
+        lead_in = header[:LEAD_IN_SIZE]
+        
+        toc = struct.unpack("<I", lead_in[4:8])[0]
+        # Big-endian flag should be set
+        assert toc & ToC.BIG_ENDIAN
+        
+        # Lead-in itself is always little-endian per TDMS spec
+        # Verify version is correct when read as little-endian
+        version = struct.unpack("<I", lead_in[8:12])[0]
+        assert version == VERSION
+
+    def test_big_endian_with_contiguous(self):
+        """Test big-endian with contiguous (non-interleaved) layout."""
+        ch_i32 = Channel("G", "I32", DataType.I32)
+        gen = TdmsSegmentGenerator([ch_i32], file_properties={})
+        
+        header = gen.build_metadata(32, interleaved=False, big_endian=True)
+        lead_in = header[:LEAD_IN_SIZE]
+        
+        toc = struct.unpack("<I", lead_in[4:8])[0]
+        # Should have BIG_ENDIAN but not INTERLEAVED
+        assert toc & ToC.BIG_ENDIAN
+        assert not (toc & ToC.INTERLEAVED)
 
     def test_multiple_channels_different_types(self):
         channels = [
@@ -131,7 +180,7 @@ class TestTdmsSegmentGeneratorNptdmsCompat:
         
         # Write segment: header + 10 interleaved scans
         num_scans = 10
-        header = gen.build_metadata(num_scans)
+        header = gen.build_metadata(num_scans, interleaved=True)
         
         # Create interleaved data: [id0][time0][id1][time1]...[id9][time9]
         raw_scans = io.BytesIO()
@@ -216,7 +265,7 @@ class TestTdmsSegmentGeneratorNptdmsCompat:
         ]
         gen = TdmsSegmentGenerator(channels)
         
-        header = gen.build_metadata(3)
+        header = gen.build_metadata(3, interleaved=True)
         
         # Create 3 interleaved scans: [bool][i32][f64] repeated
         raw_scans = io.BytesIO()

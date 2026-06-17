@@ -158,7 +158,8 @@ class TdmsSegmentGenerator:
         # equals the file size minus the absolute beginning position of the raw data.
         # It allows us to append data without updating the header.
         next_segment_offset = -1
-        lead_in = pack_lead_in(toc, next_segment_offset, len(metadata), big_endian=big_endian)
+        # NOTE: Lead-in is always little-endian per TDMS spec, regardless of big_endian flag
+        lead_in = pack_lead_in(toc, next_segment_offset, len(metadata), big_endian=False)
         return bytes(lead_in + metadata)
 
     def _build_segment_metadata(self, num_scans, big_endian=False):
