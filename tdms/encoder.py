@@ -106,7 +106,8 @@ def pack_lead_in(toc, next_seg_offset, raw_data_offset, big_endian=False):
                              (use -1 for unknown/append mode)
     raw_data_offset:  int  — bytes from end-of-lead-in to start of raw data
                              (equals total meta-data length)
-    big_endian:       bool — If True, use big-endian format. Default False (little-endian).
+    big_endian:       bool — If True, use big-endian format for VERSION and offsets.
+                             ToC is always little-endian per TDMS spec.
 
     Returns a ``bytearray`` of exactly 28 bytes.
     """
@@ -117,8 +118,12 @@ def pack_lead_in(toc, next_seg_offset, raw_data_offset, big_endian=False):
     next_seg_offset = next_seg_offset & MASK_64BIT
     raw_data_offset = raw_data_offset & MASK_64BIT
     
-    fmt = ">IIQQ" if big_endian else "<IIQQ"
-    struct.pack_into(fmt, out, 4, toc, VERSION, next_seg_offset, raw_data_offset)
+    # ToC is always little-endian per TDMS spec (so reader can detect byte order)
+    struct.pack_into("<I", out, 4, toc)
+    
+    # VERSION and offsets respect the big_endian flag
+    fmt = ">IQQ" if big_endian else "<IQQ"
+    struct.pack_into(fmt, out, 8, VERSION, next_seg_offset, raw_data_offset)
     return out
 
 

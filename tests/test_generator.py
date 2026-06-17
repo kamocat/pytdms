@@ -117,35 +117,77 @@ class TestTdmsSegmentGenerator:
         assert not (toc & ToC.INTERLEAVED)
 
     def test_big_endian_data(self):
-        """Test big-endian metadata and raw data."""
+        """Test big-endian metadata and raw data with nptdms."""
+        try:
+            from nptdms import TdmsFile
+        except ImportError:
+            pytest.skip("nptdms not available")
+        
+        import io
+        
         ch_i32 = Channel("G", "I32", DataType.I32)
         ch_f32 = Channel("G", "F32", DataType.FLOAT32)
         gen = TdmsSegmentGenerator([ch_i32, ch_f32], file_properties={})
         
-        header = gen.build_metadata(64, interleaved=True, big_endian=True)
+        header = gen.build_metadata(2, interleaved=True, big_endian=True)
         lead_in = header[:LEAD_IN_SIZE]
         
+        # ToC is always little-endian per TDMS spec
         toc = struct.unpack("<I", lead_in[4:8])[0]
-        # Big-endian flag should be set
         assert toc & ToC.BIG_ENDIAN
         
-        # Lead-in itself is always little-endian per TDMS spec
-        # Verify version is correct when read as little-endian
-        version = struct.unpack("<I", lead_in[8:12])[0]
+        # VERSION and offsets are big-endian
+        version = struct.unpack(">I", lead_in[8:12])[0]
         assert version == VERSION
+        
+        # Write file with big-endian raw data and verify nptdms can read it
+        buf = io.BytesIO()
+        buf.write(header)
+        # 2 interleaved scans: [i32_1][f32_1][i32_2][f32_2]
+        buf.write(struct.pack(">i", 100))
+        buf.write(struct.pack(">f", 1.5))
+        buf.write(struct.pack(">i", 200))
+        buf.write(struct.pack(">f", 2.5))
+        buf.seek(0)
+        
+        tdms = TdmsFile.read(buf)
+        assert len(tdms.groups()) > 0
+        group = tdms.groups()[0]
+        channels = {c.name: c.data for c in group.channels()}
+        assert len(channels["I32"]) == 2
 
     def test_big_endian_with_contiguous(self):
         """Test big-endian with contiguous (non-interleaved) layout."""
+        try:
+            from nptdms import TdmsFile
+        except ImportError:
+            pytest.skip("nptdms not available")
+        
+        import io
+        
         ch_i32 = Channel("G", "I32", DataType.I32)
         gen = TdmsSegmentGenerator([ch_i32], file_properties={})
         
-        header = gen.build_metadata(32, interleaved=False, big_endian=True)
+        header = gen.build_metadata(3, interleaved=False, big_endian=True)
         lead_in = header[:LEAD_IN_SIZE]
         
         toc = struct.unpack("<I", lead_in[4:8])[0]
         # Should have BIG_ENDIAN but not INTERLEAVED
         assert toc & ToC.BIG_ENDIAN
         assert not (toc & ToC.INTERLEAVED)
+        
+        # Write contiguous big-endian file and verify nptdms can read it
+        buf = io.BytesIO()
+        buf.write(header)
+        # 3 samples, non-interleaved (contiguous)
+        buf.write(struct.pack(">iii", 10, 20, 30))
+        buf.seek(0)
+        
+        tdms = TdmsFile.read(buf)
+        assert len(tdms.groups()) > 0
+        group = tdms.groups()[0]
+        channel = group.channels()[0]
+        assert len(channel.data) == 3
 
     def test_multiple_channels_different_types(self):
         channels = [
