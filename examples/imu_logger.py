@@ -17,14 +17,23 @@ I2C = busio.I2C(board.GP5, board.GP4)
 rtc = PCF8523(I2C)
 mpu = adafruit_mpu6050.MPU6050(I2C, address=0x69)
 
+def set_fifo_enables(mpu, enable_accel=True, enable_gyro=True, enable_temp=False):
+    fifo_en_byte = 0x00 
+    if enable_accel:
+        fifo_en_byte |= (1 << 3)
+    if enable_gyro:
+        fifo_en_byte |= (7 << 4)
+    if enable_temp:
+        fifo_en_byte |= (1 << 7)
+    # Write directly to FIFO_EN register
+    with mpu.i2c_device:
+        mpu.i2c_device.write(bytes([0x23, fifo_en_byte]))
+
 ## Configure the MPU6050
 mpu.accelerometer_range = adafruit_mpu6050.Range.RANGE_2_G
 mpu.gyro_range = adafruit_mpu6050.GyroRange.RANGE_250_DPS
-mpu.sample_rate_divisor = 9  # ~100 Hz output (1000 / (1 + 9))
-mpu.filter_bandwidth = adafruit_mpu6050.Bandwidth.BAND_94_HZ
-mpu.fifo_en = True  # Enable FIFO
-mpu.accel_fifo_en = True  # Enable accelerometer data in FIFO
-mpu.gyro_fifo_en = True   # Enable gyroscope data in FIFO
+mpu.sample_rate_divisor = 72  # ~100 Hz output
+set_fifo_enables(mpu, enable_accel=True, enable_gyro=True, enable_temp=False)
 sample_rate = 100  # Hz
 gyro_range = 250  # degrees per second
 accel_range = 2  # g
@@ -75,7 +84,7 @@ with open(fname, 'wb') as f:
     t = time.mktime(now)
     os.utime(fname, (t, t))  # Set file timestamp to RTC time
     gen = mpu_tdms()
-    k = 32  #Because we have interleaved data, this number probably doesn't matter
+    k = 1  #Because we have interleaved data, this number probably doesn't matter
     header = gen.build_metadata(k, interleaved=True, big_endian=True)
     print(f'Header is {len(header)} bytes')
     f.write(header)

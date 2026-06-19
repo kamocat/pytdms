@@ -134,8 +134,8 @@ pytdms/
 │   ├── binpack.py         # Demonstrates the different methods for packign binary data and their relative performance
 │   └── benchmark_results.md
 ├── utils/
-│   ├── inspect.py         # Read and display TDMS file structure via nptdms
-│   └── plot.py            # Visualize TDMS data with matplotlib
+│   ├── inspect_tdms.py    # Read and display TDMS file structure via nptdms
+│   └── plot_tdms.py       # Visualize TDMS data with matplotlib
 ├── LICENSE
 ├── pyproject.toml
 └── README.md
