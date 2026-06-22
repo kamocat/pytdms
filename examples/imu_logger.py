@@ -1,6 +1,4 @@
-import array
 import os
-import struct
 import time
 
 import adafruit_mpu6050
@@ -9,9 +7,9 @@ import busio
 import sdcardio
 import storage
 from adafruit_pcf8523.pcf8523 import PCF8523
-from tdms import Channel, DataType
-from tdms.constants import timestamp_from_datetime, _NI_EPOCH_OFFSET_SECONDS
-from tdms.generator import TdmsSegmentGenerator
+
+from tdms import Channel, DataType, TdmsSegmentGenerator
+from tdms.constants import _NI_EPOCH_OFFSET_SECONDS
 
 I2C = busio.I2C(board.GP5, board.GP4)
 rtc = PCF8523(I2C)
@@ -29,12 +27,23 @@ def set_fifo_enables(mpu, enable_accel=True, enable_gyro=True, enable_temp=False
     with mpu.i2c_device:
         mpu.i2c_device.write(bytes([0x23, fifo_en_byte]))
 
+    # Enable FIFO mode in USER_CTRL register (0x6A, bit 6)
+    with mpu.i2c_device:
+        # Read current USER_CTRL value
+        mpu.i2c_device.write(bytes([0x6A]))
+        user_ctrl = bytearray(1)
+        mpu.i2c_device.readinto(user_ctrl)
+        # Set bit 6 (FIFO_EN)
+        user_ctrl[0] |= (1 << 6)
+        # Write back
+        mpu.i2c_device.write(bytes([0x6A, user_ctrl[0]]))
+
 ## Configure the MPU6050
 mpu.accelerometer_range = adafruit_mpu6050.Range.RANGE_2_G
 mpu.gyro_range = adafruit_mpu6050.GyroRange.RANGE_250_DPS
-mpu.sample_rate_divisor = 72  # ~100 Hz output
+mpu.sample_rate_divisor = 15  # ~500 Hz output
 set_fifo_enables(mpu, enable_accel=True, enable_gyro=True, enable_temp=False)
-sample_rate = 100  # Hz
+sample_rate = 500  # Hz
 gyro_range = 250  # degrees per second
 accel_range = 2  # g
 
@@ -80,26 +89,34 @@ fname = dir + "{:04d}{:02d}{:02d}T{:02d}{:02d}{:02d}".format(
     now.tm_year, now.tm_mon, now.tm_mday, now.tm_hour, now.tm_min, now.tm_sec
 ) + '-imu.tdms'
 
-with open(fname, 'wb') as f:
-    t = time.mktime(now)
-    os.utime(fname, (t, t))  # Set file timestamp to RTC time
-    gen = mpu_tdms()
-    k = 1  #Because we have interleaved data, this number probably doesn't matter
-    header = gen.build_metadata(k, interleaved=True, big_endian=True)
-    print(f'Header is {len(header)} bytes')
-    f.write(header)
-    d = 0
-    mpu.read_whole_fifo()
-    end = time.monotonic() + 5 # Log for 5 seconds
-    while time.monotonic() < end:
-        c = mpu.fifo_count
-        if c > 0:
-            d += c
-            fifo_data = mpu.read_whole_fifo()
-            if fifo_data:
-                f.write(fifo_data)
-        elif d>0:
-            f.flush()
-            print(f'Wrote {d} samples')
-            d = 0
-    print(f'Wrote {d} samples')
+d2 = 0
+start = time.monotonic()
+try:
+    with open(fname, 'wb') as f:
+        t = time.mktime(now)
+        os.utime(fname, (t, t))  # Set file timestamp to RTC time
+        gen = mpu_tdms()
+        k = 1  #Because we have interleaved data, this number probably doesn't matter
+        header = gen.build_metadata(k, interleaved=True, big_endian=True)
+        print(f'Header is {len(header)} bytes')
+        f.write(header)
+        mpu.read_whole_fifo()
+        start = time.monotonic()
+        end = start + 5 # Log for 5 seconds
+        d = 0
+        while time.monotonic() < end:
+            c = mpu.fifo_count
+            if c > 0:
+                d += c
+                fifo_data = mpu.read_whole_fifo()
+                if fifo_data:
+                    f.write(fifo_data)
+                d2 += c
+            elif d>0:
+                f.flush()
+                print(f'Wrote {d} bytes')
+                d = 0
+except Exception as e:
+    print(e)
+finally:
+    print(f'Wrote {d2//12} samples in {time.monotonic()-start:0.1f} seconds')
